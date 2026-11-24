@@ -1,0 +1,32 @@
+name: Commits
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Commit format
+    runs-on: ubuntu-latest
+    # Skip Dependabot (no issue number) and release PRs (develop → main carries direct develop commits).
+    # PR author, not github.actor: a manual re-run would change the actor.
+    if: github.event.pull_request.user.login != 'dependabot[bot]' && github.head_ref != 'develop'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Validate messages (Conventional Commits, docs/CONVENCOES.md)
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          pattern='^(feat|fix|refactor|perf|test|docs|style|build|ci|chore)\([a-z0-9-]+\)!?: [^ ].* \(#[0-9]+\)$'
+          bad="$(git log --no-merges --format=%s "$BASE..$HEAD" | grep -Ev "$pattern" || true)"
+          if [ -n "$bad" ]; then
+            echo "Commits not matching '<type>(<scope>): <description> (#<issue>)':"
+            echo "$bad"
+            exit 1
+          fi

@@ -1,0 +1,39 @@
+# OS and editors
+.DS_Store
+.idea/
+.vscode/
+*.iml
+*.swp
+*~
+
+# Temporary files
+*.tmp
+*.log
+.cache/
+
+# Local env and secrets
+.env
+.env.*
+!.env.example
+
+# Specs (tlc-spec): only requirements, decisions, design and captures are tracked; the rest is session state
+.specs/**
+!.specs/
+!.specs/features/
+!.specs/features/*/
+!.specs/features/*/spec.md
+!.specs/features/*/context.md
+!.specs/features/*/design.md
+!.specs/features/*/captures/
+!.specs/features/*/captures/**
+# implementation screenshots are regenerated on every verification
+.specs/features/*/captures/*.running.png
+
+# Agent tooling: skills and settings are installed per machine, not part of the product
+.claude/
+.agents/
+.agent/
+.codex/
+.maestri/
+
+# Add the stack's rules (target/, bin/, node_modules/, .next/...)

@@ -1,0 +1,43 @@
+name: "🐞 Relatar problema"
+description: "Informe um problema ou comportamento inesperado no sistema."
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por relatar o problema. Forneça as informações essenciais para conseguirmos reproduzi-lo.
+
+  - type: textarea
+    id: problema
+    attributes:
+      label: "O que aconteceu?"
+      description: "Descreva o problema de forma clara."
+      placeholder: "Ex.: Ao salvar um registro, a página exibe uma mensagem de erro."
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproducao
+    attributes:
+      label: "Como reproduzir?"
+      description: "Informe os passos que levaram ao problema."
+      placeholder: |
+        1. Acesse...
+        2. Preencha...
+        3. Clique em...
+        4. Observe o erro...
+    validations:
+      required: true
+
+  - type: textarea
+    id: esperado
+    attributes:
+      label: "O que deveria acontecer?"
+      placeholder: "Descreva o resultado esperado."
+
+  - type: textarea
+    id: evidencias
+    attributes:
+      label: "Evidências e contexto adicional"
+      description: "Se possível, adicione capturas de tela, mensagens de erro, dispositivo, navegador ou outras informações úteis."
+

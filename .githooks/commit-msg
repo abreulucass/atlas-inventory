@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Rejects commit messages outside docs/CONVENCOES.md before they reach CI (.github/workflows/commits.yml).
+set -euo pipefail
+
+subject="$(head -n1 "$1")"
+branch="$(git symbolic-ref --short -q HEAD || true)"
+
+# Merges and direct commits on long-lived branches (no issue number: develop, main bootstrap) are not checked, matching CI.
+case "$subject" in Merge\ *) exit 0 ;; esac
+case "$branch" in main|develop) exit 0 ;; esac
+
+pattern='^(feat|fix|refactor|perf|test|docs|style|build|ci|chore)\([a-z0-9-]+\)!?: [^ ].* \(#[0-9]+\)$'
+if ! grep -Eq "$pattern" <<<"$subject"; then
+  echo "commit-msg: expected '<type>(<scope>): <description> (#<issue>)', got: $subject" >&2
+  exit 1
+fi

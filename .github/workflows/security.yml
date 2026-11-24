@@ -1,0 +1,33 @@
+name: Security
+
+# push limited to long-lived branches: PR branches are already covered by pull_request.
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  secrets:
+    name: Secrets (betterleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Pinned to v1: v2 is still a release candidate and changes -v to mean live credential validation.
+      - name: Install betterleaks
+        env:
+          BETTERLEAKS_VERSION: "1.10.1"
+        run: |
+          curl -sSfL "https://github.com/betterleaks/betterleaks/releases/download/v${BETTERLEAKS_VERSION}/betterleaks_${BETTERLEAKS_VERSION}_linux_x64.tar.gz" \
+            | tar -xz -C /usr/local/bin betterleaks
+
+      - name: Scan history
+        run: betterleaks git --redact -v --no-banner --config .betterleaks.toml .
+
+  # Dependency audit is stack-specific; add one job per project:
+  # Java: OWASP dependency-check · Go: govulncheck · Node: npm audit --audit-level=high

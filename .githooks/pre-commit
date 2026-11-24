@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Blocks commits whose staged changes contain secrets. Enable once per clone: git config core.hooksPath .githooks
+set -euo pipefail
+
+args=(git --pre-commit --staged --redact -v --no-banner --config .betterleaks.toml .)
+
+if command -v betterleaks >/dev/null; then
+  betterleaks "${args[@]}"
+elif command -v docker >/dev/null; then
+  # Same major version as CI (see .github/workflows/security.yml).
+  docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/betterleaks/betterleaks:v1 "${args[@]}"
+else
+  echo "pre-commit: betterleaks not found. Install v1 (brew install --cask betterleaks/tap/betterleaks@1) or Docker." >&2
+  exit 1
+fi

@@ -1,0 +1,3 @@
+# Normalize line endings; shell scripts always LF (CRLF breaks the shebang inside containers).
+* text=auto
+*.sh text eol=lf

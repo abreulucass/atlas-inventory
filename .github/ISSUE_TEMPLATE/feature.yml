@@ -1,0 +1,72 @@
+name: "🚀 Feature / Task"
+description: "Proponha uma nova funcionalidade ou melhoria para o projeto."
+labels: ["feature"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Obrigado por contribuir com o projeto. Preencha as informações abaixo para contextualizar a proposta.
+
+  - type: textarea
+    id: descricao
+    attributes:
+      label: "Descrição da feature"
+      description: "Descreva de forma clara o que deve ser criado ou alterado."
+      placeholder: "Ex.: Permitir que o usuário filtre os registros por status."
+    validations:
+      required: true
+
+  - type: textarea
+    id: problema
+    attributes:
+      label: "Problema relacionado"
+      description: "Qual problema, necessidade ou oportunidade motivou esta solicitação?"
+      placeholder: "Explique o cenário atual e quem é afetado."
+
+  - type: textarea
+    id: solucao
+    attributes:
+      label: "Solução proposta"
+      description: "Como você imagina que a feature deve funcionar?"
+      placeholder: "Descreva o comportamento ou fluxo esperado."
+
+  - type: textarea
+    id: alternativas
+    attributes:
+      label: "Alternativas consideradas"
+      description: "Existem outras formas de resolver o problema?"
+      placeholder: "Liste alternativas avaliadas e, se possível, explique por que não foram escolhidas."
+
+  - type: textarea
+    id: bloqueadores
+    attributes:
+      label: "Bloqueadores"
+      description: "O que impede ou atrasa a execução desta feature?"
+      placeholder: |
+        - Issue #12 precisa ser concluída.
+        - Aguardando a decisão registrada em docs/DECISOES.md.
+
+  - type: textarea
+    id: criterios
+    attributes:
+      label: "Critérios de aceite"
+      description: "Quais resultados devem ser observados para considerar a feature concluída?"
+      placeholder: |
+        - [ ] O usuário consegue filtrar registros por status.
+        - [ ] O filtro de status pode ser combinado com a busca.
+
+  - type: textarea
+    id: arquivos
+    attributes:
+      label: "Arquivos relacionados"
+      description: "Quais arquivos, módulos ou diretórios são afetados por esta feature?"
+      placeholder: |
+        - backend/src/.../modules/<modulo>/
+        - frontend/src/features/<feature>/
+
+  - type: textarea
+    id: contexto
+    attributes:
+      label: "Contexto adicional"
+      description: "Inclua referências, imagens, links ou qualquer informação que ajude a entender a solicitação."
+
