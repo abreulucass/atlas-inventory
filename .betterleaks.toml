@@ -1,12 +1,16 @@
 # Betterleaks config, passed explicitly with --config (it is not auto-loaded).
 # Top-level keys must come BEFORE [extend], or TOML puts them inside that table.
 
-# Known false positives: skip files by path regex; justify each entry. Example:
-# prefilter = '''
-# filter.matchesAny(attributes["path"], [
-#   `^design/.*\.pen$`, # design file token, not a credential
-# ])
-# '''
+# Known false positives: skip files by path regex. Justify each entry in a TOML comment here:
+# a `#` inside the expression below does not compile.
+# - backend/compose.yaml: local dev database superuser with a fictitious password; never deployed.
+# - backend/mvnw*: generated Maven wrapper, reads $MVNW_PASSWORD from the environment.
+prefilter = '''
+filter.matchesAny(attributes["path"], [
+  `^backend/compose\.yaml$`,
+  `^backend/mvnw(\.cmd)?$`,
+])
+'''
 
 [extend]
 useDefault = true
