@@ -63,11 +63,13 @@ class OrganizationsIT {
 
 	@Test
 	void rejectsInvalidName() {
-		for (String name : List.of("", "   ", " ".repeat(3) + "x".repeat(121) + " ")) {
+		for (String name : List.of("", "   ", " ".repeat(3) + "x".repeat(121) + " ", "🌱".repeat(121))) {
 			assertThatThrownBy(() -> organizations.create(name, slug())).as(name)
 				.isInstanceOf(InvalidNameException.class);
 		}
 		assertThat(organizations.create(" " + "x".repeat(120) + " ", slug())).isNotNull();
+		UUID supplementary = organizations.create("🌱".repeat(120), slug());
+		assertThat(organizations.find(supplementary).name()).isEqualTo("🌱".repeat(120));
 	}
 
 	@Test

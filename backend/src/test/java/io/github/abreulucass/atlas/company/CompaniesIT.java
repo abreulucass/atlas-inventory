@@ -115,12 +115,16 @@ class CompaniesIT {
 	void rejectsInvalidName() throws Exception {
 		UUID org = organization();
 
-		for (String name : List.of("", "   ", " " + "x".repeat(121) + " ")) {
+		for (String name : List.of("", "   ", " " + "x".repeat(121) + " ", "🌱".repeat(121))) {
 			assertThatThrownBy(() -> as(org, () -> companies.create(name, null))).as(name)
 				.isInstanceOf(InvalidNameException.class);
 		}
 		assertThat(countRows(org)).isZero();
 		assertThat(as(org, () -> companies.create(" " + "x".repeat(120) + " ", null))).isNotNull();
+		UUID supplementary = as(org, () -> companies.create("🌱".repeat(120), null));
+		assertThat(as(org, () -> companies.list(false))).filteredOn(view -> view.id().equals(supplementary))
+			.extracting(CompanyView::name)
+			.containsExactly("🌱".repeat(120));
 	}
 
 	@Test

@@ -32,7 +32,7 @@ public class Companies {
 	public UUID create(String name, @Nullable String cnpj) {
 		UUID tenant = TenantContext.require();
 		String trimmed = name == null ? "" : name.strip();
-		if (trimmed.isEmpty() || trimmed.length() > 120) {
+		if (trimmed.isEmpty() || trimmed.codePointCount(0, trimmed.length()) > 120) {
 			throw new InvalidNameException();
 		}
 		String normalized = cnpj == null ? null : Cnpj.parse(cnpj);

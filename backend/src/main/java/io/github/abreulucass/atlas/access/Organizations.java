@@ -25,7 +25,7 @@ public class Organizations {
 	@Transactional
 	public UUID create(String name, String slug) {
 		String trimmed = name == null ? "" : name.strip();
-		if (trimmed.isEmpty() || trimmed.length() > 120) {
+		if (trimmed.isEmpty() || trimmed.codePointCount(0, trimmed.length()) > 120) {
 			throw new InvalidNameException();
 		}
 		if (slug == null || slug.length() < 3 || slug.length() > 63 || !SLUG.matcher(slug).matches()) {
