@@ -188,6 +188,20 @@ class CompaniesIT {
 	}
 
 	@Test
+	void allowsSameCnpjInAnotherOrganization() throws Exception {
+		UUID first = organization();
+		UUID second = organization();
+		UUID firstId = as(first, () -> companies.create("Acme", "11222333000181"));
+
+		UUID secondId = as(second, () -> companies.create("Acme", "11.222.333/0001-81"));
+
+		assertThat(as(first, () -> companies.list(true)))
+			.containsExactly(new CompanyView(firstId, "Acme", "11222333000181", Status.ACTIVE));
+		assertThat(as(second, () -> companies.list(true)))
+			.containsExactly(new CompanyView(secondId, "Acme", "11222333000181", Status.ACTIVE));
+	}
+
+	@Test
 	void allowsSeveralCompaniesWithoutCnpj() throws Exception {
 		UUID org = organization();
 
