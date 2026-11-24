@@ -31,12 +31,12 @@ public class Companies {
 	@Transactional
 	public UUID create(String name, @Nullable String cnpj) {
 		UUID tenant = TenantContext.require();
+		organizations.requireWritable(tenant);
 		String trimmed = name == null ? "" : name.strip();
 		if (trimmed.isEmpty() || trimmed.codePointCount(0, trimmed.length()) > 120) {
 			throw new InvalidNameException();
 		}
 		String normalized = cnpj == null ? null : Cnpj.parse(cnpj);
-		organizations.requireWritable(tenant);
 		try {
 			return repository.saveAndFlush(new Company(trimmed, normalized)).getId();
 		}

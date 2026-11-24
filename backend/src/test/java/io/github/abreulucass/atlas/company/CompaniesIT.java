@@ -6,13 +6,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -411,21 +414,81 @@ class CompaniesIT {
 		UUID active = as(org, () -> companies.create("Active", null));
 		UUID archived = seedArchived(org, "Archived", null);
 		organizations.archive(org);
+		List<Callable<?>> refused = List.of(() -> companies.create("New", null),
+				// the archived state is reported before the input is validated (ARCH-04)
+				() -> companies.create("", null), () -> companies.create("x".repeat(121), null),
+				() -> companies.create("Invalid", "11222333000182"), () -> companies.create("ACTIVE", null), () -> {
+					companies.archive(active);
+					return null;
+				}, () -> {
+					companies.unarchive(archived);
+					return null;
+				});
 
-		assertThatThrownBy(() -> as(org, () -> companies.create("New", null)))
-			.isInstanceOf(OrganizationArchivedException.class);
-		assertThatThrownBy(() -> as(org, () -> {
-			companies.archive(active);
-			return null;
-		})).isInstanceOf(OrganizationArchivedException.class);
-		assertThatThrownBy(() -> as(org, () -> {
-			companies.unarchive(archived);
-			return null;
-		})).isInstanceOf(OrganizationArchivedException.class);
+		for (Callable<?> write : refused) {
+			List<Map<String, Object>> before = rows(org);
+			assertThatThrownBy(() -> as(org, write)).isInstanceOf(OrganizationArchivedException.class);
+			assertThat(rows(org)).isEqualTo(before);
+		}
 
 		assertThat(countRows(org)).isEqualTo(2);
 		assertThat(status(org, active)).isEqualTo(Status.ACTIVE);
 		assertThat(status(org, archived)).isEqualTo(Status.ARCHIVED);
+	}
+
+	/** Every column of every company of the tenant, as atlas_app sees them. */
+	List<Map<String, Object>> rows(UUID tenant) throws Exception {
+		return as(tenant, () -> new TransactionTemplate(transactionManager)
+			.execute(s -> app.queryForList("select * from companies order by id")));
+	}
+
+	static void await(CountDownLatch latch) {
+		try {
+			if (!latch.await(10, TimeUnit.SECONDS)) {
+				throw new IllegalStateException("latch timed out");
+			}
+		}
+		catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new IllegalStateException(e);
+		}
+	}
+
+	@Test
+	void archivingWaitsForCompanyCreationInFlight() throws Exception {
+		UUID org = organization();
+		CountDownLatch created = new CountDownLatch(1);
+		CountDownLatch release = new CountDownLatch(1);
+		String waitingArchive = "select count(*) from pg_stat_activity where wait_event_type = 'Lock'"
+				+ " and query ilike 'update organizations%'";
+
+		try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
+			Future<UUID> creating = executor.submit(() -> as(org,
+					() -> new TransactionTemplate(transactionManager).execute(s -> {
+						UUID id = companies.create("Raced", null);
+						created.countDown();
+						// the create transaction stays open, holding the share lock on the organization row
+						await(release);
+						return id;
+					})));
+			await(created);
+			Future<?> archiving = executor.submit(() -> organizations.archive(org));
+
+			long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+			while (app.queryForObject(waitingArchive, Integer.class) == 0) {
+				assertThat(System.nanoTime()).as("archive waits on the share lock").isLessThan(deadline);
+				Thread.sleep(10);
+			}
+			assertThat(archiving).isNotDone();
+			assertThat(organizations.find(org).status()).isEqualTo(io.github.abreulucass.atlas.access.Status.ACTIVE);
+
+			release.countDown();
+			UUID raced = creating.get(10, TimeUnit.SECONDS);
+			archiving.get(10, TimeUnit.SECONDS);
+
+			assertThat(status(org, raced)).isEqualTo(Status.ACTIVE);
+			assertThat(organizations.find(org).status()).isEqualTo(io.github.abreulucass.atlas.access.Status.ARCHIVED);
+		}
 	}
 
 }
