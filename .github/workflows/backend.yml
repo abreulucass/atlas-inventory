@@ -1,0 +1,32 @@
+name: Backend
+
+# push limited to long-lived branches: PR branches are already covered by pull_request.
+on:
+  push:
+    branches: [main, develop]
+    paths: ["backend/**", ".github/workflows/backend.yml"]
+  pull_request:
+    paths: ["backend/**", ".github/workflows/backend.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Backend (mvnw verify)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      # Integration tests start PostgreSQL with Testcontainers on the runner's Docker.
+      - name: Build and test
+        run: ./mvnw -B verify
