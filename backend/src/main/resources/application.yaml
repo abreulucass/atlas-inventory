@@ -1,0 +1,12 @@
+spring:
+  application:
+    name: atlas
+  # Defaults match compose.yaml (fictitious local passwords); every other environment sets the variables.
+  datasource:
+    url: ${ATLAS_DB_URL:jdbc:postgresql://localhost:5432/atlas}
+    username: ${ATLAS_DB_APP_USER:atlas_app}
+    password: ${ATLAS_DB_APP_PASSWORD:atlas_app}
+  # Migrations run as the schema owner; the application itself never connects with it (ADR-002).
+  flyway:
+    user: ${ATLAS_DB_OWNER_USER:atlas_owner}
+    password: ${ATLAS_DB_OWNER_PASSWORD:atlas_owner}
