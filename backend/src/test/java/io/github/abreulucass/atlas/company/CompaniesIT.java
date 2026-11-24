@@ -176,6 +176,10 @@ class CompaniesIT {
 		List<String> invalid = List.of(
 				// wrong check digit
 				"11222333000182", "11.222.333/0001-80", "12ABC34501DE36",
+				// wrong first check digit, second kept from the valid CNPJ (11222333000181, 12ABC34501DE35)
+				"11222333000171", "12ABC34501DE45",
+				// wrong first check digit, second computed over it: only the first-digit check refuses these
+				"11222333000173", "11.222.333/0001-73", "12ABC34501DE43",
 				// wrong length
 				"", "1122233300018", "112223330001811", "11.222.333/0001-8",
 				// all characters equal
