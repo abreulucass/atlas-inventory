@@ -104,15 +104,15 @@ Remaining implicit-requirement dimensions N/A for this scope: no business input,
 
 | Requirement ID | Story | Phase | Status |
 | -------------- | ----- | ----- | ------ |
-| BUILD-01 | P1: Build verificável, AC 1 | Execute | Pending |
-| BUILD-02 | P1: Build verificável, AC 2 | Execute | Pending |
-| BUILD-03 | P1: Build verificável, AC 3 | Execute | Pending |
-| DB-01 | P1: Banco local, AC 1 | Execute | Pending |
-| DB-02 | P1: Banco local, AC 2 | Execute | Pending |
-| DB-03 | P1: Banco local, AC 3 | Execute | Pending |
-| DB-04 | P1: Banco local, AC 4 | Execute | Pending |
-| DB-05 | P1: Banco local, AC 5 | Execute | Pending |
-| HEALTH-01 | P1: Health check, AC 1 | Execute | Pending |
+| BUILD-01 | P1: Build verificável, AC 1 | Execute | Verified |
+| BUILD-02 | P1: Build verificável, AC 2 | Execute | Verified |
+| BUILD-03 | P1: Build verificável, AC 3 | Execute | Verified |
+| DB-01 | P1: Banco local, AC 1 | Execute | Verified |
+| DB-02 | P1: Banco local, AC 2 | Execute | Verified |
+| DB-03 | P1: Banco local, AC 3 | Execute | Verified |
+| DB-04 | P1: Banco local, AC 4 | Execute | Verified |
+| DB-05 | P1: Banco local, AC 5 | Execute | Verified |
+| HEALTH-01 | P1: Health check, AC 1 | Execute | Verified |
 
 **Coverage:** 9 total, 9 mapped to checks, 0 unmapped
 
@@ -164,3 +164,11 @@ Proof: `cd backend && ./mvnw -B verify -Dtest=none -Dsurefire.failIfNoSpecifiedT
 
 **C9** - `GET /actuator/health` returns 200 with `status` = `UP` (HEALTH-01, AC 1)
 Proof: run backend | Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: -- in io.github.abreulucass.atlas.HealthIT
+
+---
+
+## Handoff
+
+**Settled mid-build:** none
+**Dispatched:** Verifier at 66b34a4 - returned
+**Walked:** C3 - PR #8 checks list "Backend (mvnw verify)" as passed at 76e6ad8 (https://github.com/abreulucass/atlas-inventory/actions/runs/45471138697); "Secrets (betterleaks)" and "Commit format" also passed
