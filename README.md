@@ -1,37 +1,48 @@
-# project-template
+# Atlas Inventory
 
-Template de repositório com as convenções, CI e segurança dos projetos do portfólio.
+[![Security](https://github.com/abreulucass/atlas-inventory/actions/workflows/security.yml/badge.svg)](https://github.com/abreulucass/atlas-inventory/actions/workflows/security.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Novo projeto
+Plataforma de gestão de estoque multiempresa e multidepósito, com foco em consistência de dados e regras de negócio complexas.
 
-```bash
-gh repo create abreulucass/<projeto> --template abreulucass/project-template --public --clone
-cd <projeto>
-mv README.template.md README.md          # substitui este README pelo do projeto
-git config core.hooksPath .githooks      # em cada clone: hooks de segredos e formato de commit
-git commit -am "docs(docs): start project readme" && git push
-scripts/setup-repo.sh abreulucass/<projeto>   # labels, develop padrão, proteções, push protection
-```
+> Em desenvolvimento: ainda não há versão executável.
 
-Proteções de branch e push protection exigem repositório público (ou GitHub Pro).
+## Por que este projeto
 
-## Conteúdo
+Estoque é um domínio em que erros custam dinheiro: duas reservas simultâneas do mesmo item, uma transferência que sai de um depósito e não chega ao outro, um movimento registrado duas vezes. O Atlas Inventory trata concorrência, transações, integridade de dados, idempotência e isolamento multi-tenant como requisitos de primeira classe.
 
-| Arquivo | Uso |
+## Funcionalidades
+
+- Produtos, categorias e fornecedores.
+- Estoque em múltiplos depósitos e transferência entre unidades.
+- Reserva de estoque para pedidos.
+- Controle de lotes e validade.
+- Histórico auditável de movimentações.
+- Compras e reposição.
+- Controle de acesso e isolamento multi-tenant.
+- Dashboard de indicadores operacionais.
+
+## Arquitetura
+
+Monólito modular com Spring Modulith: cada módulo de domínio expõe uma API pública e se comunica com os demais por eventos; as fronteiras são verificadas em teste.
+
+## Stack
+
+| Camada | Tecnologia |
 |---|---|
-| `docs/CONVENCOES.md` | Idioma, branches, commits, PRs, issues, changelog, segurança |
-| `AGENTS.md` | Modelo de contexto para agentes de IA (preencher) |
-| `docs/DECISOES.md`, `docs/adr/ADR-000-modelo.md` | Modelos de decisões e ADR |
-| `CHANGELOG.md` | Modelo Keep a Changelog |
-| `.github/pull_request_template.md` | Template de PR |
-| `.github/ISSUE_TEMPLATE/` | Templates de feature e bug; issues em branco desabilitadas |
-| `.github/workflows/commits.yml` | Valida o formato dos commits do PR |
-| `.github/workflows/security.yml` | betterleaks no CI (auditoria de dependências por stack) |
-| `.github/dependabot.yml` | Atualização semanal de Actions (acrescentar a stack) |
-| `scripts/setup-repo.sh` | Labels, `develop` como padrão, proteções, push protection e modo de merge via `gh` |
-| `.githooks/` | `pre-commit` (betterleaks no que está staged) e `commit-msg` (formato do commit) |
-| `README.template.md` | Modelo do README do projeto (renomear para `README.md`) |
-| `LICENSE` | MIT |
-| `.gitignore`, `.gitattributes`, `.betterleaks.toml` | Higiene do repositório |
+| Backend | Java 25, Spring Boot, Spring Modulith |
+| Persistência | PostgreSQL, Spring Data JPA, Flyway |
+| Frontend | Next.js, TypeScript, shadcn/ui |
+| Testes | JUnit, Testcontainers, ArchUnit |
+| Infraestrutura | Docker, GitHub Actions |
 
-Não incluído: workflow de qualidade (build/testes), pois depende da stack de cada projeto.
+## Documentação
+
+- [Convenções](docs/CONVENCOES.md)
+- [Decisões](docs/DECISOES.md)
+- [ADRs](docs/adr/)
+- [Changelog](CHANGELOG.md)
+
+## Licença
+
+[MIT](LICENSE)

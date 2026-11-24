@@ -1,27 +1,20 @@
 # AGENTS.md
 
-<!-- Modelo: substitua os trechos entre <> ao copiar para um projeto. -->
-
 ## Projeto
 
-**<Nome>** — <uma frase sobre o produto>.
+**Atlas Inventory** — gestão de estoque multiempresa e multidepósito, com foco em consistência de dados.
 
-- `backend/` — <linguagem + framework>.
-- `frontend/` — Next.js + TypeScript + shadcn/ui.
+- `backend/` — Java 25 + Spring Boot + Spring Modulith (a criar).
+- `frontend/` — Next.js + TypeScript + shadcn/ui (a criar).
 - `docs/` — decisões, ADRs e convenções.
 
 ## Comandos
 
-```bash
-<comando para subir o ambiente>
-<comando para testes unitários>
-<comando para testes de integração>
-<comando para lint>
-```
+Ainda não há código. Documente aqui os comandos de ambiente, testes e lint quando o backend for criado.
 
 ## Regras de arquitetura
 
-- <regras de dependência entre módulos e como são verificadas>
+- Monólito modular: módulos só se acessam pela API pública uns dos outros ou por eventos; fronteiras verificadas com Spring Modulith/ArchUnit em teste.
 
 ## Convenções
 
