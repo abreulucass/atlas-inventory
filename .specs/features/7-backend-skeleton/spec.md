@@ -135,14 +135,14 @@ Remaining implicit-requirement dimensions N/A for this scope: no business input,
 
 ## Checks
 
-**Build**: `cd backend && ./mvnw -q -DskipTests package`
-**Run backend**: `cd backend && ./mvnw verify`
+**Build**: `cd backend && ./mvnw -B -q -DskipTests package`
+**Run backend**: `cd backend && ./mvnw -B verify`
 
 **C1** - `./mvnw verify` compiles with Java 25 and passes every test (BUILD-01, AC 1)
 Proof: run backend | BUILD SUCCESS
 
 **C2** - The module verification test runs `ApplicationModules.verify()` and passes (BUILD-02, AC 2)
-Proof: run backend | Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed in io.github.abreulucass.atlas.ModularityTest
+Proof: run backend | Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: -- in io.github.abreulucass.atlas.ModularityTest
 
 **C3** - CI runs `./mvnw verify` on PRs that change `backend/` and the check is green (BUILD-03, AC 3)
 Proof: walk - PR checks list "Backend (mvnw verify)" as passed
@@ -151,16 +151,16 @@ Proof: walk - PR checks list "Backend (mvnw verify)" as passed
 Proof: `cd backend && docker compose up -d --wait && docker compose exec -T postgres psql -U atlas_app -d atlas -tAc 'select current_user' | grep -qx atlas_app && docker compose exec -T postgres psql -U atlas_owner -d atlas -tAc 'select current_user' | grep -qx atlas_owner; rc=$?; docker compose down -v; exit $rc`
 
 **C5** - Flyway's history records `atlas_owner` as the installer of V1 (DB-02, AC 2)
-Proof: run backend | DatabaseRolesIT
+Proof: `cd backend && ./mvnw -B verify -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false -Dit.test='DatabaseRolesIT#flywayAppliesMigrationsAsOwner' | grep -q 'Tests run: 1, Failures: 0, Errors: 0, Skipped: 0'`
 
 **C6** - The datasource user is `atlas_app` with `rolsuper` and `rolbypassrls` false (DB-03, AC 3)
-Proof: run backend | DatabaseRolesIT
+Proof: `cd backend && ./mvnw -B verify -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false -Dit.test='DatabaseRolesIT#applicationConnectsAsRoleThatCannotBypassRls' | grep -q 'Tests run: 1, Failures: 0, Errors: 0, Skipped: 0'`
 
 **C7** - `CREATE TABLE` as `atlas_app` fails with permission denied (DB-04, AC 4)
-Proof: run backend | DatabaseRolesIT
+Proof: `cd backend && ./mvnw -B verify -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false -Dit.test='DatabaseRolesIT#applicationCannotCreateTables' | grep -q 'Tests run: 1, Failures: 0, Errors: 0, Skipped: 0'`
 
 **C8** - A table created by `atlas_owner` accepts `INSERT` and `SELECT` from `atlas_app` (DB-05, AC 5)
-Proof: run backend | DatabaseRolesIT
+Proof: `cd backend && ./mvnw -B verify -Dtest=none -Dsurefire.failIfNoSpecifiedTests=false -Dit.test='DatabaseRolesIT#applicationReadsAndWritesTablesCreatedByOwner' | grep -q 'Tests run: 1, Failures: 0, Errors: 0, Skipped: 0'`
 
 **C9** - `GET /actuator/health` returns 200 with `status` = `UP` (HEALTH-01, AC 1)
-Proof: run backend | HealthIT
+Proof: run backend | Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: -- in io.github.abreulucass.atlas.HealthIT
