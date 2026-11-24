@@ -58,4 +58,10 @@ class CnpjTest {
 		assertRejected(List.of("12ABC34501DE3A", "12ABC34501DEA5", "1122233300018B"));
 	}
 
+	@Test
+	void rejectsPunctuationOutsideFullMask() {
+		assertRejected(List.of("11222333000181-", "11222333/000181", "112.22.333/0001-81", "11.222.333.0001-81",
+				"11-222-333-0001-81", ".11222333000181", "11.222.333/0001-81 "));
+	}
+
 }

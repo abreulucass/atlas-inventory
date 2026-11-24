@@ -165,6 +165,26 @@ class CompaniesIT {
 	}
 
 	@Test
+	void rejectsInvalidCnpj() throws Exception {
+		UUID org = organization();
+		List<String> invalid = List.of(
+				// wrong check digit
+				"11222333000182", "11.222.333/0001-80", "12ABC34501DE36",
+				// wrong length
+				"", "1122233300018", "112223330001811", "11.222.333/0001-8",
+				// all characters equal
+				"00000000000000", "00.000.000/0000-00", "AAAAAAAAAAAAAA",
+				// punctuation outside the full mask
+				"11222333000181-", "11222333/000181", "112.22.333/0001-81", "11.222.333.0001-81", "11-222-333-0001-81");
+
+		for (String cnpj : invalid) {
+			assertThatThrownBy(() -> as(org, () -> companies.create("Acme", cnpj))).as(cnpj)
+				.isInstanceOf(InvalidCnpjException.class);
+		}
+		assertThat(countRows(org)).isZero();
+	}
+
+	@Test
 	void allowsSeveralCompaniesWithoutCnpj() throws Exception {
 		UUID org = organization();
 

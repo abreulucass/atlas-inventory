@@ -9,6 +9,9 @@ public final class Cnpj {
 
 	private static final Pattern FORMAT = Pattern.compile("[0-9A-Z]{12}[0-9]{2}");
 
+	private static final Pattern MASK = Pattern
+		.compile("[0-9A-Za-z]{2}\\.[0-9A-Za-z]{3}\\.[0-9A-Za-z]{3}/[0-9A-Za-z]{4}-[0-9A-Za-z]{2}");
+
 	private static final int[] FIRST_WEIGHTS = { 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2 };
 
 	private static final int[] SECOND_WEIGHTS = { 6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2 };
@@ -16,9 +19,9 @@ public final class Cnpj {
 	private Cnpj() {
 	}
 
-	/** Returns the 14 characters without mask, in upper case. */
+	/** Accepts the 14 characters bare or in the full mask; returns them without mask, in upper case. */
 	public static String parse(String raw) {
-		String cnpj = raw.replaceAll("[./-]", "").toUpperCase();
+		String cnpj = (MASK.matcher(raw).matches() ? raw.replaceAll("[./-]", "") : raw).toUpperCase();
 		if (!FORMAT.matcher(cnpj).matches() || cnpj.chars().distinct().count() == 1
 				|| checkDigit(cnpj, FIRST_WEIGHTS) != cnpj.charAt(12) - '0'
 				|| checkDigit(cnpj, SECOND_WEIGHTS) != cnpj.charAt(13) - '0') {
