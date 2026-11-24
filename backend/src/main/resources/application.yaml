@@ -10,3 +10,6 @@ spring:
   flyway:
     user: ${ATLAS_DB_OWNER_USER:atlas_owner}
     password: ${ATLAS_DB_OWNER_PASSWORD:atlas_owner}
+  jpa:
+    # The tenant must be bound before the session opens; a view-wide EntityManager would open it earlier.
+    open-in-view: false

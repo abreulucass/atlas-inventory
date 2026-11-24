@@ -34,6 +34,7 @@ Opção 4: filtro na aplicação e barreira no banco.
 
 - Toda tabela com `tenant_id` tem `ENABLE` e `FORCE ROW LEVEL SECURITY` e a política `USING (tenant_id = current_setting('app.tenant_id', true)::uuid) WITH CHECK (<mesma expressão>)`.
 - Sem contexto definido, `current_setting(..., true)` devolve `NULL`, e a política não deixa ler nem gravar nada: falha fechada.
+- Nota (feature #10): depois de um `set_config(..., true)` na sessão, `current_setting('app.tenant_id', true)` passa a devolver `''`, não `NULL`, e `''::uuid` é erro. Por isso a política usa `nullif(current_setting('app.tenant_id', true), '')::uuid`: uma conexão reaproveitada do pool continua sem ver linha nenhuma, em vez de falhar no cast.
 - Dois papéis: `atlas_owner` é dono do schema e roda o Flyway; `atlas_app` é o da aplicação, sem `SUPERUSER`, sem `BYPASSRLS` e sem ser dono das tabelas.
 
 **Aplicação**

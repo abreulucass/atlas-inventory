@@ -11,7 +11,7 @@ import org.testcontainers.utility.MountableFile;
  * so the tests connect exactly as the application does.
  */
 @TestConfiguration(proxyBeanMethods = false)
-class TestcontainersConfiguration {
+public class TestcontainersConfiguration {
 
 	@Bean
 	PostgreSQLContainer postgresContainer() {
