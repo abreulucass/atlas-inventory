@@ -44,9 +44,31 @@ public class Organizations {
 
 	@Transactional(readOnly = true)
 	public OrganizationView find(UUID id) {
-		Organization organization = repository.findById(id).orElseThrow(() -> new OrganizationNotFoundException(id));
+		Organization organization = get(id);
 		return new OrganizationView(organization.getId(), organization.getName(), organization.getSlug(),
 				organization.isArchived() ? Status.ARCHIVED : Status.ACTIVE);
+	}
+
+	@Transactional
+	public void archive(UUID id) {
+		get(id).archive();
+	}
+
+	@Transactional
+	public void unarchive(UUID id) {
+		get(id).unarchive();
+	}
+
+	/** Call inside the transaction that writes: the share lock holds until it ends. */
+	@Transactional
+	public void requireWritable(UUID id) {
+		if (repository.findForShare(id).orElseThrow(() -> new OrganizationNotFoundException(id)).isArchived()) {
+			throw new OrganizationArchivedException(id);
+		}
+	}
+
+	private Organization get(UUID id) {
+		return repository.findById(id).orElseThrow(() -> new OrganizationNotFoundException(id));
 	}
 
 }

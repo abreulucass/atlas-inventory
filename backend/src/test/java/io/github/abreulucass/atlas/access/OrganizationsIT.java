@@ -101,4 +101,37 @@ class OrganizationsIT {
 			.isInstanceOf(OrganizationNotFoundException.class);
 	}
 
+	@Test
+	void archivesOrganization() {
+		UUID id = organizations.create("Acme", slug());
+
+		organizations.archive(id);
+		organizations.archive(id);
+
+		assertThat(organizations.find(id).status()).isEqualTo(Status.ARCHIVED);
+	}
+
+	@Test
+	void unarchivesOrganization() {
+		UUID id = organizations.create("Acme", slug());
+		organizations.archive(id);
+
+		organizations.unarchive(id);
+		organizations.unarchive(id);
+
+		assertThat(organizations.find(id).status()).isEqualTo(Status.ACTIVE);
+		organizations.requireWritable(id);
+	}
+
+	@Test
+	void requireWritableRejectsArchived() {
+		UUID id = organizations.create("Acme", slug());
+		organizations.requireWritable(id);
+		organizations.archive(id);
+
+		assertThatThrownBy(() -> organizations.requireWritable(id)).isInstanceOf(OrganizationArchivedException.class);
+		assertThatThrownBy(() -> organizations.requireWritable(UUID.randomUUID()))
+			.isInstanceOf(OrganizationNotFoundException.class);
+	}
+
 }
