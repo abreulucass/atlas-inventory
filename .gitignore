@@ -36,5 +36,6 @@
 .codex/
 .maestri/
 graphify-out/
+skills-lock.json
 
 # Add the stack's rules (target/, bin/, node_modules/, .next/...)
