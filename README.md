@@ -1,11 +1,12 @@
 # Atlas Inventory
 
+[![Backend](https://github.com/abreulucass/atlas-inventory/actions/workflows/backend.yml/badge.svg)](https://github.com/abreulucass/atlas-inventory/actions/workflows/backend.yml)
 [![Security](https://github.com/abreulucass/atlas-inventory/actions/workflows/security.yml/badge.svg)](https://github.com/abreulucass/atlas-inventory/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Plataforma de gestão de estoque multiempresa e multidepósito, com foco em consistência de dados e regras de negócio complexas.
 
-> Em desenvolvimento: ainda não há versão executável.
+> Em desenvolvimento: o backend sobe e é testado, mas ainda não tem funcionalidades de domínio.
 
 ## Por que este projeto
 
@@ -35,6 +36,17 @@ Monólito modular com Spring Modulith: cada módulo de domínio expõe uma API p
 | Frontend | Next.js, TypeScript, shadcn/ui |
 | Testes | JUnit, Testcontainers, ArchUnit |
 | Infraestrutura | Docker, GitHub Actions |
+
+## Como rodar
+
+Requisitos: JDK 25 e Docker.
+
+```bash
+cd backend
+docker compose up -d --wait   # PostgreSQL 18 com os papéis atlas_owner e atlas_app
+./mvnw spring-boot:run        # http://localhost:8080/actuator/health
+./mvnw verify                 # testes; os de integração sobem o próprio Postgres (Testcontainers)
+```
 
 ## Documentação
 
