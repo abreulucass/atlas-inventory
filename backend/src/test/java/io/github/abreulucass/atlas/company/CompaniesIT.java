@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.BrokenBarrierException;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
@@ -16,6 +17,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -112,6 +114,7 @@ class CompaniesIT {
 
 		assertThat(as(org, () -> companies.list(false)))
 			.containsExactly(new CompanyView(id, "Acme", "12ABC34501DE35", Status.ACTIVE));
+		assertThat(companyRow(org, id)).containsEntry("cnpj", "12ABC34501DE35");
 	}
 
 	@Test
@@ -205,10 +208,14 @@ class CompaniesIT {
 	void allowsSeveralCompaniesWithoutCnpj() throws Exception {
 		UUID org = organization();
 
-		as(org, () -> companies.create("Acme", null));
-		as(org, () -> companies.create("Beta", null));
+		UUID acme = as(org, () -> companies.create("Acme", null));
+		UUID beta = as(org, () -> companies.create("Beta", null));
 
 		assertThat(as(org, () -> companies.list(false))).extracting(CompanyView::name).containsExactly("Acme", "Beta");
+		assertThat(as(org, () -> companies.list(false))).containsExactly(
+				new CompanyView(acme, "Acme", null, Status.ACTIVE), new CompanyView(beta, "Beta", null, Status.ACTIVE));
+		assertThat(companyRow(org, acme)).containsEntry("cnpj", null);
+		assertThat(companyRow(org, beta)).containsEntry("cnpj", null);
 	}
 
 	@Test
@@ -235,6 +242,7 @@ class CompaniesIT {
 		UUID alpha = as(org, () -> companies.create("Alpha", null));
 		UUID aardvark = seedArchived(org, "Aardvark", null);
 		as(other, () -> companies.create("Able", null));
+		seedArchived(other, "Aaron", null);
 
 		List<CompanyView> listed = as(org, () -> companies.list(true));
 
@@ -250,10 +258,12 @@ class CompaniesIT {
 		List<Future<UUID>> results = new ArrayList<>();
 		try (ExecutorService executor = Executors.newFixedThreadPool(2)) {
 			for (int i = 0; i < 2; i++) {
-				results.add(executor.submit(() -> {
-					start.await();
-					return as(org, () -> companies.create("Acme", null));
-				}));
+				results.add(executor.submit(() -> as(org,
+						() -> new TransactionTemplate(transactionManager).execute(s -> {
+							// both transactions are open before either creates, so neither commits first
+							await(start);
+							return companies.create("Acme", null);
+						}))));
 			}
 		}
 
@@ -308,9 +318,23 @@ class CompaniesIT {
 	void listsCompaniesOfArchivedOrganization() throws Exception {
 		UUID org = organization();
 		UUID id = as(org, () -> companies.create("Acme", null));
+		UUID archived = seedArchived(org, "Beta", null);
 		organizations.archive(org);
 
 		assertThat(as(org, () -> companies.list(false))).extracting(CompanyView::id).containsExactly(id);
+		assertThat(as(org, () -> companies.list(false)))
+			.containsExactly(new CompanyView(id, "Acme", null, Status.ACTIVE));
+		assertThat(as(org, () -> companies.list(true))).containsExactly(new CompanyView(id, "Acme", null, Status.ACTIVE),
+				new CompanyView(archived, "Beta", null, Status.ARCHIVED));
+	}
+
+	Map<String, Object> companyRow(UUID tenant, UUID company) throws Exception {
+		return as(tenant, () -> new TransactionTemplate(transactionManager)
+			.execute(s -> app.queryForMap("select * from companies where id = ?", company)));
+	}
+
+	Map<String, Object> organizationRow(UUID organization) {
+		return app.queryForMap("select * from organizations where id = ?", organization);
 	}
 
 	Status status(UUID tenant, UUID company) throws Exception {
@@ -363,39 +387,54 @@ class CompaniesIT {
 		UUID org = organization();
 		UUID id = as(org, () -> companies.create("Acme", null));
 
+		Map<String, Object> before = companyRow(org, id);
 		as(org, () -> {
 			companies.unarchive(id);
 			return null;
 		});
 		assertThat(status(org, id)).isEqualTo(Status.ACTIVE);
+		assertThat(companyRow(org, id)).isEqualTo(before);
 		as(org, () -> {
 			companies.archive(id);
 			return null;
 		});
 		Timestamp companyArchived = companyArchivedAt(org, id);
+		before = companyRow(org, id);
 		as(org, () -> {
 			companies.archive(id);
 			return null;
 		});
 		assertThat(status(org, id)).isEqualTo(Status.ARCHIVED);
 		assertThat(companyArchivedAt(org, id)).isEqualTo(companyArchived);
+		assertThat(companyRow(org, id)).isEqualTo(before);
 		as(org, () -> {
 			companies.unarchive(id);
+			return null;
+		});
+		before = companyRow(org, id);
+		as(org, () -> {
 			companies.unarchive(id);
 			return null;
 		});
 		assertThat(status(org, id)).isEqualTo(Status.ACTIVE);
+		assertThat(companyRow(org, id)).isEqualTo(before);
 
+		Map<String, Object> organizationBefore = organizationRow(org);
 		organizations.unarchive(org);
 		assertThat(organizations.find(org).status()).isEqualTo(io.github.abreulucass.atlas.access.Status.ACTIVE);
+		assertThat(organizationRow(org)).isEqualTo(organizationBefore);
 		organizations.archive(org);
 		Timestamp organizationArchived = organizationArchivedAt(org);
+		organizationBefore = organizationRow(org);
 		organizations.archive(org);
 		assertThat(organizations.find(org).status()).isEqualTo(io.github.abreulucass.atlas.access.Status.ARCHIVED);
 		assertThat(organizationArchivedAt(org)).isEqualTo(organizationArchived);
+		assertThat(organizationRow(org)).isEqualTo(organizationBefore);
 		organizations.unarchive(org);
+		organizationBefore = organizationRow(org);
 		organizations.unarchive(org);
 		assertThat(organizations.find(org).status()).isEqualTo(io.github.abreulucass.atlas.access.Status.ACTIVE);
+		assertThat(organizationRow(org)).isEqualTo(organizationBefore);
 	}
 
 	@Test
@@ -454,6 +493,19 @@ class CompaniesIT {
 	List<Map<String, Object>> rows(UUID tenant) throws Exception {
 		return as(tenant, () -> new TransactionTemplate(transactionManager)
 			.execute(s -> app.queryForList("select * from companies order by id")));
+	}
+
+	static void await(CyclicBarrier barrier) {
+		try {
+			barrier.await(10, TimeUnit.SECONDS);
+		}
+		catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new IllegalStateException(e);
+		}
+		catch (BrokenBarrierException | TimeoutException e) {
+			throw new IllegalStateException(e);
+		}
 	}
 
 	static void await(CountDownLatch latch) {

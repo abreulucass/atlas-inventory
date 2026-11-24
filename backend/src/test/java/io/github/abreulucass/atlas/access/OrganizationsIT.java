@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -41,12 +42,17 @@ class OrganizationsIT {
 	@Test
 	void rejectsDuplicateSlug() {
 		String slug = slug();
-		organizations.create("First", slug);
+		UUID first = organizations.create("First", slug);
+		Map<String, Object> original = app.queryForMap("select * from organizations where id = ?", first);
+		String second = "Second " + slug;
 
-		assertThatThrownBy(() -> organizations.create("Second", slug)).isInstanceOf(DuplicateSlugException.class);
+		assertThatThrownBy(() -> organizations.create(second, slug)).isInstanceOf(DuplicateSlugException.class);
 
 		assertThat(app.queryForObject("select count(*) from organizations where slug = ?", Integer.class, slug))
 			.isEqualTo(1);
+		assertThat(app.queryForMap("select * from organizations where id = ?", first)).isEqualTo(original);
+		assertThat(app.queryForObject("select count(*) from organizations where name = ?", Integer.class, second))
+			.isZero();
 	}
 
 	@Test
@@ -115,13 +121,19 @@ class OrganizationsIT {
 	void rejectsUnknownOrganization() {
 		assertThatThrownBy(() -> organizations.find(UUID.randomUUID()))
 			.isInstanceOf(OrganizationNotFoundException.class);
+		assertThatThrownBy(() -> organizations.archive(UUID.randomUUID()))
+			.isInstanceOf(OrganizationNotFoundException.class);
+		assertThatThrownBy(() -> organizations.unarchive(UUID.randomUUID()))
+			.isInstanceOf(OrganizationNotFoundException.class);
 	}
 
 	@Test
 	void archivesOrganization() {
 		UUID id = organizations.create("Acme", slug());
+		assertThat(organizations.find(id).status()).isEqualTo(Status.ACTIVE);
 
 		organizations.archive(id);
+		assertThat(organizations.find(id).status()).isEqualTo(Status.ARCHIVED);
 		organizations.archive(id);
 
 		assertThat(organizations.find(id).status()).isEqualTo(Status.ARCHIVED);
@@ -131,8 +143,10 @@ class OrganizationsIT {
 	void unarchivesOrganization() {
 		UUID id = organizations.create("Acme", slug());
 		organizations.archive(id);
+		assertThat(organizations.find(id).status()).isEqualTo(Status.ARCHIVED);
 
 		organizations.unarchive(id);
+		assertThat(organizations.find(id).status()).isEqualTo(Status.ACTIVE);
 		organizations.unarchive(id);
 
 		assertThat(organizations.find(id).status()).isEqualTo(Status.ACTIVE);

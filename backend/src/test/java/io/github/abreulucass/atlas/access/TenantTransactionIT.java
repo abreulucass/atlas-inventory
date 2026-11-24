@@ -57,6 +57,21 @@ class TenantTransactionIT {
 
 		assertThat(seen).isNull();
 		assertThat(backendPid()).as("same pooled connection").isEqualTo(pid);
+
+		// the same holds when the tenant transaction rolls back
+		AtomicReference<Integer> rolledBackPid = new AtomicReference<>();
+		assertThatThrownBy(() -> TenantContext.callAs(tenant, () -> new TransactionTemplate(transactionManager)
+			.execute(status -> {
+				rolledBackPid.set(app.queryForObject("select pg_backend_pid()", Integer.class));
+				assertThat(app.queryForObject("select current_setting('app.tenant_id', true)", String.class))
+					.isEqualTo(tenant.toString());
+				throw new IllegalStateException("roll back");
+			})))
+			.hasMessage("roll back");
+
+		assertThat(tenantSetting()).isNull();
+		assertThat(rolledBackPid).hasValue(pid);
+		assertThat(backendPid()).as("same pooled connection").isEqualTo(pid);
 	}
 
 	@Test
