@@ -4,13 +4,19 @@
 
 **Atlas Inventory** — gestão de estoque multiempresa e multidepósito, com foco em consistência de dados.
 
-- `backend/` — Java 25 + Spring Boot + Spring Modulith (a criar).
+- `backend/` — Java 25 + Spring Boot 4.2 + Spring Modulith 2.2, Maven.
 - `frontend/` — Next.js + TypeScript + shadcn/ui (a criar).
 - `docs/` — decisões, ADRs e convenções.
 
 ## Comandos
 
-Ainda não há código. Documente aqui os comandos de ambiente, testes e lint quando o backend for criado.
+Backend, em `backend/` (JDK 25 e Docker):
+
+- `docker compose up -d --wait` — PostgreSQL 18 local com os papéis `atlas_owner` (dono, Flyway) e `atlas_app` (aplicação).
+- `./mvnw spring-boot:run` — sobe a aplicação contra o Compose.
+- `./mvnw test` — testes unitários e de fronteira (`ModularityTest`), sem Docker.
+- `./mvnw verify` — tudo, incluindo os `*IT` com Testcontainers; é o que o CI roda.
+- Migrações em `src/main/resources/db/migration/`, rodam como `atlas_owner`; a aplicação conecta como `atlas_app`.
 
 ## Regras de arquitetura
 

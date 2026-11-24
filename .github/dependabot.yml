@@ -11,11 +11,10 @@ updates:
       actions:
         patterns: ["*"]
 
-  # Add the project's stack (maven: Atlas · gomod: EventBridge · npm: Sentinel and frontends):
-  # - package-ecosystem: maven
-  #   directory: /backend
-  #   schedule:
-  #     interval: weekly
-  #   commit-message:
-  #     prefix: build
-  #     include: scope
+  - package-ecosystem: maven
+    directory: /backend
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build # "build(deps): bump ..."
+      include: scope
