@@ -14,7 +14,8 @@ Ainda não há código. Documente aqui os comandos de ambiente, testes e lint qu
 
 ## Regras de arquitetura
 
-- Monólito modular: módulos só se acessam pela API pública uns dos outros ou por eventos; fronteiras verificadas com Spring Modulith/ArchUnit em teste.
+- Monólito modular ([ADR-001](docs/adr/ADR-001-monolito-modular.md)): módulos só se acessam pela API pública uns dos outros ou por eventos; fronteiras verificadas com Spring Modulith em teste.
+- Multi-tenant ([ADR-002](docs/adr/ADR-002-multi-tenancy.md)): toda tabela de uma organização tem `tenant_id` com RLS forçada; o tenant vem só do contexto autenticado, nunca da requisição.
 
 ## Convenções
 

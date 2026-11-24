@@ -8,6 +8,8 @@ Todas as mudanças relevantes ficam neste arquivo. O formato segue o
 
 ### Adicionado
 
+- ADR-001 (monólito modular com Spring Modulith), ADR-002 (multi-tenancy com Row-Level Security) e decisões D01–D03 da fundação.
+
 ### Alterado
 
 ### Corrigido
