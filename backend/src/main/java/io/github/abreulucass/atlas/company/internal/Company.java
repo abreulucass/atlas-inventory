@@ -55,4 +55,14 @@ public class Company {
 		return archivedAt != null;
 	}
 
+	public void archive() {
+		if (archivedAt == null) {
+			archivedAt = Instant.now();
+		}
+	}
+
+	public void unarchive() {
+		archivedAt = null;
+	}
+
 }

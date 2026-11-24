@@ -3,6 +3,7 @@ package io.github.abreulucass.atlas.company;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import java.sql.Timestamp;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -26,6 +27,7 @@ import org.springframework.transaction.support.TransactionTemplate;
 
 import io.github.abreulucass.atlas.TestcontainersConfiguration;
 import io.github.abreulucass.atlas.access.MissingTenantContextException;
+import io.github.abreulucass.atlas.access.OrganizationArchivedException;
 import io.github.abreulucass.atlas.access.Organizations;
 import io.github.abreulucass.atlas.access.TenantContext;
 
@@ -239,6 +241,11 @@ class CompaniesIT {
 		assertThatThrownBy(() -> companies.list(true)).isInstanceOf(MissingTenantContextException.class);
 
 		assertThat(countRows(org)).isZero();
+
+		UUID id = as(org, () -> companies.create("Acme", null));
+		assertThatThrownBy(() -> companies.archive(id)).isInstanceOf(MissingTenantContextException.class);
+		assertThatThrownBy(() -> companies.unarchive(id)).isInstanceOf(MissingTenantContextException.class);
+		assertThat(status(org, id)).isEqualTo(Status.ACTIVE);
 	}
 
 	@Test
@@ -263,6 +270,138 @@ class CompaniesIT {
 		organizations.archive(org);
 
 		assertThat(as(org, () -> companies.list(false))).extracting(CompanyView::id).containsExactly(id);
+	}
+
+	Status status(UUID tenant, UUID company) throws Exception {
+		return as(tenant, () -> companies.list(true)).stream()
+			.filter(view -> view.id().equals(company))
+			.findFirst()
+			.orElseThrow()
+			.status();
+	}
+
+	Timestamp companyArchivedAt(UUID tenant, UUID company) throws Exception {
+		return as(tenant, () -> new TransactionTemplate(transactionManager).execute(s -> app
+			.queryForObject("select archived_at from companies where id = ?", Timestamp.class, company)));
+	}
+
+	Timestamp organizationArchivedAt(UUID organization) {
+		return app.queryForObject("select archived_at from organizations where id = ?", Timestamp.class,
+				organization);
+	}
+
+	@Test
+	void archivesCompany() throws Exception {
+		UUID org = organization();
+		UUID id = as(org, () -> companies.create("Acme", null));
+
+		as(org, () -> {
+			companies.archive(id);
+			return null;
+		});
+
+		assertThat(status(org, id)).isEqualTo(Status.ARCHIVED);
+		assertThat(as(org, () -> companies.list(false))).isEmpty();
+	}
+
+	@Test
+	void unarchivesCompany() throws Exception {
+		UUID org = organization();
+		UUID id = seedArchived(org, "Acme", null);
+
+		as(org, () -> {
+			companies.unarchive(id);
+			return null;
+		});
+
+		assertThat(as(org, () -> companies.list(false))).containsExactly(new CompanyView(id, "Acme", null, Status.ACTIVE));
+	}
+
+	@Test
+	void archiveAndUnarchiveAreIdempotent() throws Exception {
+		UUID org = organization();
+		UUID id = as(org, () -> companies.create("Acme", null));
+
+		as(org, () -> {
+			companies.unarchive(id);
+			return null;
+		});
+		assertThat(status(org, id)).isEqualTo(Status.ACTIVE);
+		as(org, () -> {
+			companies.archive(id);
+			return null;
+		});
+		Timestamp companyArchived = companyArchivedAt(org, id);
+		as(org, () -> {
+			companies.archive(id);
+			return null;
+		});
+		assertThat(status(org, id)).isEqualTo(Status.ARCHIVED);
+		assertThat(companyArchivedAt(org, id)).isEqualTo(companyArchived);
+		as(org, () -> {
+			companies.unarchive(id);
+			companies.unarchive(id);
+			return null;
+		});
+		assertThat(status(org, id)).isEqualTo(Status.ACTIVE);
+
+		organizations.unarchive(org);
+		assertThat(organizations.find(org).status()).isEqualTo(io.github.abreulucass.atlas.access.Status.ACTIVE);
+		organizations.archive(org);
+		Timestamp organizationArchived = organizationArchivedAt(org);
+		organizations.archive(org);
+		assertThat(organizations.find(org).status()).isEqualTo(io.github.abreulucass.atlas.access.Status.ARCHIVED);
+		assertThat(organizationArchivedAt(org)).isEqualTo(organizationArchived);
+		organizations.unarchive(org);
+		organizations.unarchive(org);
+		assertThat(organizations.find(org).status()).isEqualTo(io.github.abreulucass.atlas.access.Status.ACTIVE);
+	}
+
+	@Test
+	void rejectsCompanyOfAnotherTenant() throws Exception {
+		UUID org = organization();
+		UUID other = organization();
+		UUID foreign = as(other, () -> companies.create("Foreign", null));
+		UUID foreignArchived = seedArchived(other, "Foreign archived", null);
+
+		assertThatThrownBy(() -> as(org, () -> {
+			companies.archive(foreign);
+			return null;
+		})).isInstanceOf(CompanyNotFoundException.class);
+		assertThatThrownBy(() -> as(org, () -> {
+			companies.unarchive(foreignArchived);
+			return null;
+		})).isInstanceOf(CompanyNotFoundException.class);
+		assertThatThrownBy(() -> as(org, () -> {
+			companies.archive(UUID.randomUUID());
+			return null;
+		})).isInstanceOf(CompanyNotFoundException.class);
+
+		assertThat(status(other, foreign)).isEqualTo(Status.ACTIVE);
+		assertThat(status(other, foreignArchived)).isEqualTo(Status.ARCHIVED);
+	}
+
+	@Test
+	void rejectsWritesInArchivedOrganization() throws Exception {
+		UUID org = organization();
+		UUID active = as(org, () -> companies.create("Active", null));
+		UUID archived = seedArchived(org, "Archived", null);
+		organizations.archive(org);
+
+		assertThatThrownBy(() -> as(org, () -> companies.create("New", null)))
+			.isInstanceOf(OrganizationArchivedException.class);
+		assertThatThrownBy(() -> as(org, () -> {
+			companies.archive(active);
+			return null;
+		})).isInstanceOf(OrganizationArchivedException.class);
+		assertThatThrownBy(() -> as(org, () -> {
+			companies.unarchive(archived);
+			return null;
+		})).isInstanceOf(OrganizationArchivedException.class);
+
+		assertThat(countRows(org)).isEqualTo(2);
+		assertThat(status(org, active)).isEqualTo(Status.ACTIVE);
+		assertThat(status(org, archived)).isEqualTo(Status.ARCHIVED);
 	}
 
 }

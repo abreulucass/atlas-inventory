@@ -63,4 +63,20 @@ public class Companies {
 			.toList();
 	}
 
+	@Transactional
+	public void archive(UUID id) {
+		writable(id).archive();
+	}
+
+	@Transactional
+	public void unarchive(UUID id) {
+		writable(id).unarchive();
+	}
+
+	private Company writable(UUID id) {
+		organizations.requireWritable(TenantContext.require());
+		// the tenant filter and RLS hide companies of other organizations
+		return repository.findById(id).orElseThrow(() -> new CompanyNotFoundException(id));
+	}
+
 }
