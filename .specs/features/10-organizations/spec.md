@@ -36,7 +36,7 @@ O backend não tem nenhum dado de domínio nem a barreira de isolamento do ADR-0
 | Identificação | Organização: nome + slug único global imutável; empresa: nome + CNPJ opcional, únicos na organização | Escolha do usuário | y |
 | Arquivamento | Organização arquivada: leitura sim, escrita no tenant não, desarquivável. Empresa arquivada: fora da listagem padrão, desarquivável, nome/CNPJ reservados | Escolha do usuário | y |
 | Formato do slug | 3 a 63 caracteres, `^[a-z0-9]+(-[a-z0-9]+)*$`; nunca normalizado, entrada fora do formato é recusada | Seguro em URL e subdomínio (limite de rótulo DNS); recusar evita surpresa | n |
-| Nome | Espaços das pontas removidos; 1 a 120 caracteres depois disso | Limite de exibição comum | n |
+| Nome | Espaços das pontas removidos; 1 a 120 caracteres depois disso, contados em pontos de código Unicode (como o `varchar` do PostgreSQL) | Limite de exibição comum; um emoji conta como um caractere | n |
 | Unicidade do nome da empresa | Sem diferenciar maiúsculas/minúsculas, depois de remover espaços das pontas | "Acme" e "ACME" na mesma organização confundem | n |
 | CNPJ | Aceita 14 caracteres ou a máscara `00.000.000/0000-00`; guarda os 14 sem máscara, em maiúsculas; recusa os 14 iguais; aceita o CNPJ alfanumérico (12 primeiros de `0-9A-Z`, valor = código ASCII − 48, mesmos pesos módulo 11, 2 dígitos verificadores numéricos) | A Receita emite CNPJ alfanumérico desde julho de 2026 (IN RFB 2.229/2024); regra não conferida na fonte nesta sessão | n |
 | Arquivar o que já está arquivado / desarquivar o ativo | Sucesso sem mudança (idempotente) | Repetir a operação não é erro do usuário | n |
@@ -63,7 +63,8 @@ O backend não tem nenhum dado de domínio nem a barreira de isolamento do ADR-0
 4. IF the trimmed name is empty or longer than 120 characters THEN the system SHALL reject the creation with `InvalidNameException`.
 5. IF `atlas_app` issues an `UPDATE` that sets `organizations.slug` THEN PostgreSQL SHALL reject it with a permission error.
 6. WHEN an organization is fetched by id THEN the system SHALL return its id, name, slug and status.
-7. IF an organization id does not exist THEN the system SHALL reject the operation with `OrganizationNotFoundException`.
+7. IF an organization id does not exist THEN find, archive and unarchive SHALL reject the operation with `OrganizationNotFoundException`.
+8. IF `atlas_app` issues a `DELETE` on `organizations` THEN PostgreSQL SHALL reject it with a permission error.
 
 **Independent Test**: criar uma organização e buscá-la pelo id; criar outra com o mesmo slug e ver a recusa.
 
@@ -84,6 +85,9 @@ O backend não tem nenhum dado de domínio nem a barreira de isolamento do ADR-0
 5. Every table in schema `public` with a `tenant_id` column SHALL have row-level security enabled and forced and at least one policy.
 6. WHEN a transaction that set the tenant context ends THEN the next transaction on the same connection SHALL see no tenant context.
 7. WHEN a company is created THEN its `tenant_id` SHALL equal the organization of the tenant context.
+8. WHILE the tenant context is organization A, IF `atlas_app` updates or deletes `companies` rows of organization B THEN PostgreSQL SHALL affect zero rows.
+9. WHILE the tenant context is organization A, IF `atlas_app` updates a row's `tenant_id` to B THEN PostgreSQL SHALL reject it with a row-level security error.
+10. WHILE a transaction is bound to organization A, IF the tenant context is switched to another organization THEN the system SHALL reject the switch with `IllegalStateException` before running any code in it.
 
 **Independent Test**: teste de integração conectado como `atlas_app` com duas organizações, cada uma com uma empresa.
 
@@ -102,13 +106,14 @@ O backend não tem nenhum dado de domínio nem a barreira de isolamento do ADR-0
 3. IF the trimmed name is empty or longer than 120 characters THEN the system SHALL reject the creation with `InvalidNameException`.
 4. IF another company of the same organization, active or archived, has the same trimmed name ignoring case THEN the system SHALL reject the creation with `DuplicateCompanyNameException`.
 5. WHEN a company is created with the name of a company of another organization THEN the system SHALL create it.
-6. IF the CNPJ is not 14 characters after removing the mask, has a wrong check digit, or has all 14 characters equal THEN the system SHALL reject the creation with `InvalidCnpjException`.
+6. IF the CNPJ is neither 14 characters without punctuation nor the full mask `XX.XXX.XXX/XXXX-XX`, has a wrong check digit, or has all 14 characters equal THEN the system SHALL reject the creation with `InvalidCnpjException`.
 7. IF another company of the same organization, active or archived, has the same CNPJ THEN the system SHALL reject the creation with `DuplicateCnpjException`.
 8. WHEN two companies of the same organization are created without CNPJ THEN the system SHALL create both.
 9. WHEN companies are listed without the archived filter THEN the system SHALL return the active companies of the tenant ordered by name.
 10. WHEN companies are listed with the archived filter THEN the system SHALL return active and archived companies of the tenant ordered by name.
 11. IF a company id does not belong to the tenant of the context THEN the system SHALL reject the operation with `CompanyNotFoundException`.
 12. IF two companies with the same name are created concurrently in the same organization THEN the system SHALL create exactly one and reject the other with `DuplicateCompanyNameException`.
+13. WHEN a company is created with a CNPJ used by a company of another organization THEN the system SHALL create it.
 
 **Independent Test**: no contexto de uma organização, criar empresas com e sem CNPJ, listar, e ver as recusas de nome e CNPJ repetidos.
 
@@ -125,7 +130,7 @@ O backend não tem nenhum dado de domínio nem a barreira de isolamento do ADR-0
 1. WHEN an active organization is archived THEN the system SHALL set its status to archived.
 2. WHEN an archived organization is unarchived THEN the system SHALL set its status to active.
 3. WHILE an organization is archived, a company listing in its tenant context SHALL return its companies.
-4. WHILE an organization is archived, IF a company is created, archived or unarchived in its tenant context THEN the system SHALL reject it with `OrganizationArchivedException` and persist nothing.
+4. WHILE an organization is archived, IF a company is created, archived or unarchived in its tenant context THEN the system SHALL reject it with `OrganizationArchivedException`, before validating the input, and change no row.
 5. WHEN an active company is archived THEN the system SHALL set its status to archived.
 6. WHEN an archived company is unarchived THEN the system SHALL set its status to active.
 7. WHEN an organization or company is archived while already archived, or unarchived while already active, THEN the system SHALL succeed without changing it.
@@ -157,6 +162,7 @@ Dimensions: input validation (ORG-03/04, COMP-03/06); failure and rollback (ORG-
 | ORG-05 | P1: Organização, AC 5 | Design | Pending |
 | ORG-06 | P1: Organização, AC 6 | Design | Pending |
 | ORG-07 | P1: Organização, AC 7 | Design | Pending |
+| ORG-08 | P1: Organização, AC 8 | Verify | Pending |
 | TEN-01 | P1: Isolamento, AC 1 | Design | Pending |
 | TEN-02 | P1: Isolamento, AC 2 | Design | Pending |
 | TEN-03 | P1: Isolamento, AC 3 | Design | Pending |
@@ -164,6 +170,9 @@ Dimensions: input validation (ORG-03/04, COMP-03/06); failure and rollback (ORG-
 | TEN-05 | P1: Isolamento, AC 5 | Design | Pending |
 | TEN-06 | P1: Isolamento, AC 6 | Design | Pending |
 | TEN-07 | P1: Isolamento, AC 7 | Design | Pending |
+| TEN-08 | P1: Isolamento, AC 8 | Verify | Pending |
+| TEN-09 | P1: Isolamento, AC 9 | Verify | Pending |
+| TEN-10 | P1: Isolamento, AC 10 | Verify | Pending |
 | COMP-01 | P1: Empresas, AC 1 | Design | Pending |
 | COMP-02 | P1: Empresas, AC 2 | Design | Pending |
 | COMP-03 | P1: Empresas, AC 3 | Design | Pending |
@@ -176,6 +185,7 @@ Dimensions: input validation (ORG-03/04, COMP-03/06); failure and rollback (ORG-
 | COMP-10 | P1: Empresas, AC 10 | Design | Pending |
 | COMP-11 | P1: Empresas, AC 11 | Design | Pending |
 | COMP-12 | P1: Empresas, AC 12 | Design | Pending |
+| COMP-13 | P1: Empresas, AC 13 | Verify | Pending |
 | ARCH-01 | P1: Arquivar, AC 1 | Design | Pending |
 | ARCH-02 | P1: Arquivar, AC 2 | Design | Pending |
 | ARCH-03 | P1: Arquivar, AC 3 | Design | Pending |
@@ -184,7 +194,7 @@ Dimensions: input validation (ORG-03/04, COMP-03/06); failure and rollback (ORG-
 | ARCH-06 | P1: Arquivar, AC 6 | Design | Pending |
 | ARCH-07 | P1: Arquivar, AC 7 | Design | Pending |
 
-**Coverage:** 33 total, 0 mapped to tasks, 33 unmapped (tasks come after design)
+**Coverage:** 38 total (5 added from the Verifier's findings), 38 mapped to checks, 0 unmapped
 
 ---
 
