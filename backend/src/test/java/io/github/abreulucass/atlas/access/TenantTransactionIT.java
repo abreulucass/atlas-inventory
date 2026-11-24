@@ -1,8 +1,11 @@
 package io.github.abreulucass.atlas.access;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -54,6 +57,37 @@ class TenantTransactionIT {
 
 		assertThat(seen).isNull();
 		assertThat(backendPid()).as("same pooled connection").isEqualTo(pid);
+	}
+
+	@Test
+	void switchingTenantInsideTransactionIsRejected() throws Exception {
+		UUID tenant = UUID.randomUUID();
+		UUID other = UUID.randomUUID();
+		AtomicBoolean ran = new AtomicBoolean();
+		AtomicReference<UUID> sameTenant = new AtomicReference<>();
+		TransactionTemplate tx = new TransactionTemplate(transactionManager);
+
+		TenantContext.callAs(tenant, () -> tx.execute(status -> {
+			assertThatThrownBy(() -> TenantContext.callAs(other, () -> ran.getAndSet(true)))
+				.isInstanceOf(IllegalStateException.class);
+			assertThatThrownBy(() -> TenantContext.runAs(other, () -> ran.set(true)))
+				.isInstanceOf(IllegalStateException.class);
+			TenantContext.runAs(tenant, () -> sameTenant.set(TenantContext.require()));
+			// Java scope and database session still agree on the tenant
+			assertThat(TenantContext.require()).isEqualTo(tenant);
+			assertThat(app.queryForObject("select nullif(current_setting('app.tenant_id', true), '')", String.class))
+				.isEqualTo(tenant.toString());
+			return null;
+		}));
+		// a transaction begun without context is bound to no tenant
+		tx.execute(status -> {
+			assertThatThrownBy(() -> TenantContext.callAs(tenant, () -> ran.getAndSet(true)))
+				.isInstanceOf(IllegalStateException.class);
+			return null;
+		});
+
+		assertThat(ran).isFalse();
+		assertThat(sameTenant).hasValue(tenant);
 	}
 
 }
