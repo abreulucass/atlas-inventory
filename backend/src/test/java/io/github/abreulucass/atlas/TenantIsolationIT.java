@@ -18,6 +18,7 @@ import org.springframework.dao.DataAccessException;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -59,6 +60,19 @@ class TenantIsolationIT {
 		UUID id = UUID.randomUUID();
 		owner().update("insert into organizations (id, name, slug) values (?, 'Org', ?)", id, "org-" + id);
 		return id;
+	}
+
+	/** The full row, read by the owner inside the tenant that holds it. */
+	Map<String, Object> ownerRow(UUID tenant, UUID company) {
+		SingleConnectionDataSource connection = new SingleConnectionDataSource(url, ownerUser, ownerPassword, true);
+		try {
+			JdbcTemplate owner = new JdbcTemplate(connection);
+			owner.queryForObject("select set_config('app.tenant_id', ?, false)", String.class, tenant.toString());
+			return owner.queryForMap("select * from companies where id = ?", company);
+		}
+		finally {
+			connection.destroy();
+		}
 	}
 
 	// RLS is forced on the owner too, so it seeds inside the tenant it writes to
@@ -109,6 +123,35 @@ class TenantIsolationIT {
 			.isInstanceOf(DataAccessException.class)
 			.rootCause()
 			.hasMessageContaining("row-level security policy");
+	}
+
+	@Test
+	void updateAndDeleteOfOtherTenantAffectNothing() throws Exception {
+		Map<String, Object> before = ownerRow(orgB, companyB);
+
+		List<Integer> affected = List.of(
+				inTenant(orgA, () -> app.update("update companies set name = 'Hijacked' where id = ?", companyB)),
+				inTenant(orgA, () -> app.update("update companies set name = 'Hijacked' where tenant_id = ?", orgB)),
+				inTenant(orgA, () -> app.update("delete from companies where id = ?", companyB)),
+				inTenant(orgA, () -> app.update("delete from companies where tenant_id = ?", orgB)));
+
+		assertThat(affected).containsOnly(0);
+		assertThat(ownerRow(orgB, companyB)).isEqualTo(before);
+		// the same statement reaches the row of the current tenant
+		assertThat(inTenant(orgA, () -> app.update("update companies set name = 'Renamed' where id = ?", companyA)))
+			.isEqualTo(1);
+	}
+
+	@Test
+	void reassigningTenantIsRejected() {
+		Map<String, Object> before = ownerRow(orgA, companyA);
+
+		assertThatThrownBy(() -> inTenant(orgA,
+				() -> app.update("update companies set tenant_id = ? where id = ?", orgB, companyA)))
+			.isInstanceOf(DataAccessException.class)
+			.rootCause()
+			.hasMessageContaining("row-level security policy");
+		assertThat(ownerRow(orgA, companyA)).isEqualTo(before);
 	}
 
 	@Test
