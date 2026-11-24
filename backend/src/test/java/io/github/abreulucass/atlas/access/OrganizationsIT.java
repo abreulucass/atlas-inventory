@@ -85,6 +85,20 @@ class OrganizationsIT {
 	}
 
 	@Test
+	void databaseRejectsOrganizationDelete() {
+		String slug = slug();
+		UUID id = organizations.create("Acme", slug);
+
+		assertThatThrownBy(() -> app.update("delete from organizations where id = ?", id))
+			.isInstanceOf(DataAccessException.class)
+			.rootCause()
+			.hasMessageContaining("permission denied");
+
+		assertThat(organizations.find(id)).isEqualTo(new OrganizationView(id, "Acme", slug, Status.ACTIVE));
+		assertThatThrownBy(() -> organizations.create("Other", slug)).isInstanceOf(DuplicateSlugException.class);
+	}
+
+	@Test
 	void findsOrganizationById() {
 		String slug = slug();
 		UUID id = organizations.create("Beta", slug);
