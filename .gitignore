@@ -35,5 +35,6 @@
 .agent/
 .codex/
 .maestri/
+graphify-out/
 
 # Add the stack's rules (target/, bin/, node_modules/, .next/...)
