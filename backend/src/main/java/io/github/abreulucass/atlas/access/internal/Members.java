@@ -67,6 +67,26 @@ class Members {
 		return new MemberView(user.getId(), user.getName(), user.getEmail(), granted);
 	}
 
+	@Transactional
+	MemberView changeRole(UUID userId, String role) {
+		UUID organizationId = TenantContext.require();
+		Role callerRole = lockAndRequireManager(organizationId);
+		organizations.requireWritable(organizationId);
+		Membership target = memberships.findByUserIdAndOrganizationId(userId, organizationId)
+			.orElseThrow(MemberNotFoundException::new);
+		Role granted = parseRole(role);
+		if (callerRole == Role.ADMIN && (target.getRole() != Role.MEMBER || granted != Role.MEMBER)) {
+			throw new NotAllowedException();
+		}
+		if (target.getRole() == Role.OWNER && granted != Role.OWNER
+				&& memberships.countByOrganizationIdAndRole(organizationId, Role.OWNER) == 1) {
+			throw new LastOwnerException();
+		}
+		target.changeRole(granted);
+		User user = users.findById(userId).orElseThrow();
+		return new MemberView(userId, user.getName(), user.getEmail(), granted);
+	}
+
 	/** Takes the transaction-scoped member lock of the organization, then returns the caller's role. */
 	private Role lockAndRequireManager(UUID organizationId) {
 		jdbc.sql("select pg_advisory_xact_lock(hashtextextended(?, 0))")

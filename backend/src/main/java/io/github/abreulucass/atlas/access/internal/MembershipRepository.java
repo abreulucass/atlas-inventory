@@ -13,6 +13,8 @@ public interface MembershipRepository extends JpaRepository<Membership, UUID> {
 
 	Optional<Membership> findByUserIdAndOrganizationId(UUID userId, UUID organizationId);
 
+	long countByOrganizationIdAndRole(UUID organizationId, Role role);
+
 	@Query("""
 			select new io.github.abreulucass.atlas.access.internal.MemberView(u.id, u.name, u.email, m.role)
 			from Membership m, User u where u.id = m.userId and m.organizationId = :organizationId

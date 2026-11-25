@@ -118,6 +118,44 @@ class MemberApiIT {
 		return switchTo(user, manager.organizationId());
 	}
 
+	ResultActions changeAs(Session as, Object userId, String json) throws Exception {
+		return mvc.perform(patch("/api/members/" + userId).header("Authorization", as.bearer())
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(json));
+	}
+
+	ResultActions changeAs(Session as, Session target, String role) throws Exception {
+		return changeAs(as, target.userId(), "{\"role\": \"%s\"}".formatted(role));
+	}
+
+	int ownerCount(UUID organizationId) {
+		return app.queryForObject("select count(*) from memberships where organization_id = ? and role = 'OWNER'",
+				Integer.class, organizationId);
+	}
+
+	/** Runs each call at once behind a start barrier and returns the HTTP statuses. */
+	List<Integer> race(List<java.util.concurrent.Callable<ResultActions>> calls) throws Exception {
+		var pool = java.util.concurrent.Executors.newFixedThreadPool(calls.size());
+		try {
+			var barrier = new java.util.concurrent.CyclicBarrier(calls.size());
+			var futures = new java.util.ArrayList<java.util.concurrent.Future<Integer>>();
+			for (var call : calls) {
+				futures.add(pool.submit(() -> {
+					barrier.await();
+					return call.call().andReturn().getResponse().getStatus();
+				}));
+			}
+			var statuses = new java.util.ArrayList<Integer>();
+			for (var f : futures) {
+				statuses.add(f.get(30, java.util.concurrent.TimeUnit.SECONDS));
+			}
+			return statuses;
+		}
+		finally {
+			pool.shutdownNow();
+		}
+	}
+
 	int membershipCount(UUID userId, UUID organizationId) {
 		return app.queryForObject("select count(*) from memberships where user_id = ? and organization_id = ?",
 				Integer.class, userId, organizationId);
@@ -353,6 +391,168 @@ class MemberApiIT {
 				listAs(switched).andExpect(status().isOk()).andReturn().getResponse().getContentAsString(),
 				"$[*].userId");
 		assertThat(ids).containsExactlyInAnyOrder(owner.userId().toString(), user.userId().toString());
+	}
+
+	@Test
+	void ownerChangesRole() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "Mel", "MEMBER");
+
+		changeAs(owner, member, "ADMIN").andExpect(status().isOk())
+			.andExpect(jsonPath("$.userId").value(member.userId().toString()))
+			.andExpect(jsonPath("$.name").value("Mel"))
+			.andExpect(jsonPath("$.email").value(member.email()))
+			.andExpect(jsonPath("$.role").value("ADMIN"));
+
+		assertThat(roleOf(member.userId(), owner.organizationId())).isEqualTo("ADMIN");
+		List<String> listed = JsonPath.read(
+				listAs(owner).andExpect(status().isOk()).andReturn().getResponse().getContentAsString(),
+				"$[?(@.userId == '%s')].role".formatted(member.userId()));
+		assertThat(listed).containsExactly("ADMIN");
+
+		changeAs(owner, member, "OWNER").andExpect(status().isOk()).andExpect(jsonPath("$.role").value("OWNER"));
+		assertThat(roleOf(member.userId(), owner.organizationId())).isEqualTo("OWNER");
+	}
+
+	@Test
+	void sameRoleReturns200() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "Adam", "ADMIN");
+
+		changeAs(owner, admin, "ADMIN").andExpect(status().isOk())
+			.andExpect(jsonPath("$.userId").value(admin.userId().toString()))
+			.andExpect(jsonPath("$.name").value("Adam"))
+			.andExpect(jsonPath("$.email").value(admin.email()))
+			.andExpect(jsonPath("$.role").value("ADMIN"));
+		changeAs(owner, owner, "OWNER").andExpect(status().isOk()).andExpect(jsonPath("$.role").value("OWNER"));
+
+		assertThat(roleOf(admin.userId(), owner.organizationId())).isEqualTo("ADMIN");
+		assertThat(roleOf(owner.userId(), owner.organizationId())).isEqualTo("OWNER");
+		assertThat(memberCount(owner.organizationId())).isEqualTo(2);
+	}
+
+	@Test
+	void adminCannotChangeAboveMember() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "Adam", "ADMIN");
+		Session otherAdmin = join(owner, "Alba", "ADMIN");
+		Session member = join(owner, "Mel", "MEMBER");
+
+		for (String role : List.of("OWNER", "ADMIN", "MEMBER")) {
+			changeAs(admin, owner, role).andExpect(status().isForbidden());
+			changeAs(admin, otherAdmin, role).andExpect(status().isForbidden());
+		}
+		changeAs(admin, member, "OWNER").andExpect(status().isForbidden());
+		changeAs(admin, member, "ADMIN").andExpect(status().isForbidden());
+
+		assertThat(roleOf(owner.userId(), owner.organizationId())).isEqualTo("OWNER");
+		assertThat(roleOf(otherAdmin.userId(), owner.organizationId())).isEqualTo("ADMIN");
+		assertThat(roleOf(member.userId(), owner.organizationId())).isEqualTo("MEMBER");
+		assertThat(roleOf(admin.userId(), owner.organizationId())).isEqualTo("ADMIN");
+	}
+
+	@Test
+	void memberCannotChangeRole() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "Mel", "MEMBER");
+		Session other = join(owner, "Max", "MEMBER");
+
+		for (String role : List.of("OWNER", "ADMIN", "MEMBER")) {
+			changeAs(member, other, role).andExpect(status().isForbidden());
+			changeAs(member, member, role).andExpect(status().isForbidden());
+			changeAs(member, owner, role).andExpect(status().isForbidden());
+		}
+
+		assertThat(roleOf(member.userId(), owner.organizationId())).isEqualTo("MEMBER");
+		assertThat(roleOf(other.userId(), owner.organizationId())).isEqualTo("MEMBER");
+		assertThat(roleOf(owner.userId(), owner.organizationId())).isEqualTo("OWNER");
+	}
+
+	@Test
+	void lastOwnerCannotBeDemoted() throws Exception {
+		Session owner = register("Olga");
+		join(owner, "Adam", "ADMIN");
+
+		changeAs(owner, owner, "ADMIN").andExpect(status().isConflict());
+		changeAs(owner, owner, "MEMBER").andExpect(status().isConflict());
+
+		assertThat(roleOf(owner.userId(), owner.organizationId())).isEqualTo("OWNER");
+		assertThat(ownerCount(owner.organizationId())).isEqualTo(1);
+	}
+
+	@Test
+	void changeUnknownOrOtherTenantReturns404() throws Exception {
+		Session owner = register("Olga");
+		Session stranger = register("Sara");
+
+		changeAs(owner, stranger, "MEMBER").andExpect(status().isNotFound());
+		changeAs(owner, UUID.randomUUID(), "{\"role\": \"MEMBER\"}").andExpect(status().isNotFound());
+		changeAs(owner, "not-a-uuid", "{\"role\": \"MEMBER\"}").andExpect(status().isNotFound());
+
+		assertThat(roleOf(stranger.userId(), stranger.organizationId())).isEqualTo("OWNER");
+		assertThat(membershipCount(stranger.userId(), owner.organizationId())).isZero();
+	}
+
+	@Test
+	void changeInvalidRoleReturns400() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "Mel", "MEMBER");
+
+		for (String json : List.of("{}", "{\"role\": null}", "{\"role\": \"\"}", "{\"role\": \"SUPER\"}",
+				"{\"role\": \"admin\"}")) {
+			changeAs(owner, member.userId(), json).andExpect(status().isBadRequest());
+		}
+
+		assertThat(roleOf(member.userId(), owner.organizationId())).isEqualTo("MEMBER");
+	}
+
+	@Test
+	void changeInArchivedOrganizationReturns409() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "Mel", "MEMBER");
+		archive(owner.organizationId());
+
+		changeAs(owner, member, "ADMIN").andExpect(status().isConflict());
+
+		assertThat(roleOf(member.userId(), owner.organizationId())).isEqualTo("MEMBER");
+	}
+
+	@Test
+	void demotedAdminLosesWriteImmediately() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "Adam", "ADMIN");
+		String company = "{\"name\": \"%s\"}";
+
+		mvc.perform(post("/api/companies").header("Authorization", admin.bearer())
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(company.formatted("Before"))).andExpect(status().isCreated());
+
+		changeAs(owner, admin, "MEMBER").andExpect(status().isOk());
+
+		mvc.perform(post("/api/companies").header("Authorization", admin.bearer())
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(company.formatted("After"))).andExpect(status().isForbidden());
+		List<String> names = JsonPath.read(mvc.perform(get("/api/companies").header("Authorization", owner.bearer()))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString(), "$[*].name");
+		assertThat(names).containsExactly("Before");
+	}
+
+	@Test
+	void concurrentOwnerDemotionsLeaveOneOwner() throws Exception {
+		for (String demotedTo : List.of("ADMIN", "MEMBER", "ADMIN", "MEMBER", "ADMIN")) {
+			Session first = register("Olga");
+			Session second = join(first, "Otto", "OWNER");
+
+			List<Integer> statuses = race(List.of(() -> changeAs(first, second, demotedTo),
+					() -> changeAs(second, first, demotedTo)));
+
+			assertThat(statuses.stream().filter(c -> c == 200).count()).isEqualTo(1);
+			assertThat(statuses).containsAnyOf(403, 409).allMatch(c -> c == 200 || c == 403 || c == 409);
+			assertThat(ownerCount(first.organizationId())).isEqualTo(1);
+		}
 	}
 
 	@Test

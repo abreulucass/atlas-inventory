@@ -50,4 +50,8 @@ public class Membership {
 		return role;
 	}
 
+	void changeRole(Role role) {
+		this.role = role;
+	}
+
 }
