@@ -889,6 +889,34 @@ class MemberApiIT {
 	}
 
 	@Test
+	void demotedAdminLosesWarehouseWriteImmediately() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "Adam", "ADMIN");
+		String company = JsonPath.read(mvc.perform(post("/api/companies").header("Authorization", owner.bearer())
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"name\": \"Acme\"}")).andExpect(status().isCreated()).andReturn().getResponse()
+			.getContentAsString(), "$.id");
+		String warehouses = "/api/companies/" + company + "/warehouses";
+		String warehouse = "{\"name\": \"%s\", \"code\": \"%s\"}";
+
+		mvc.perform(post(warehouses).header("Authorization", admin.bearer())
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(warehouse.formatted("Before", "B1"))).andExpect(status().isCreated());
+
+		changeAs(owner, admin, "MEMBER").andExpect(status().isOk());
+
+		mvc.perform(post(warehouses).header("Authorization", admin.bearer())
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(warehouse.formatted("After", "A1"))).andExpect(status().isForbidden());
+		List<String> names = JsonPath.read(mvc.perform(get(warehouses).header("Authorization", owner.bearer()))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString(), "$[*].name");
+		assertThat(names).containsExactly("Before");
+	}
+
+	@Test
 	void concurrentAddsYieldOne201() throws Exception {
 		int threads = 5;
 		var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
