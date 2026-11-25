@@ -217,28 +217,23 @@ class CompanyApiIT {
 	void createReturns201WithLocation() throws Exception {
 		Session owner = register();
 		Session admin = joinAs(owner, "ADMIN");
+		String[] cnpjs = { "11.222.333/0001-81", "12.abc.345/01de-35" };
+		String[] expected = { "11222333000181", "12ABC34501DE35" };
+		Session[] creators = { owner, admin };
 
-		String ownerBody = createAs(owner, "Acme", "11.222.333/0001-81").andExpect(status().isCreated())
-			.andExpect(jsonPath("$.name").value("Acme"))
-			.andExpect(jsonPath("$.cnpj").value("11222333000181"))
-			.andExpect(jsonPath("$.status").value("ACTIVE"))
-			.andReturn()
-			.getResponse()
-			.getContentAsString();
-		String ownerId = JsonPath.read(ownerBody, "$.id");
-		createAs(owner, "Acme 2", null).andExpect(header().string("Location", "/api/companies/" + findId(owner, "Acme 2")));
-
-		createAs(admin, "Beta", null).andExpect(status().isCreated())
-			.andExpect(jsonPath("$.name").value("Beta"))
-			.andExpect(jsonPath("$.cnpj").value((Object) null));
-		getAs(owner, "/api/companies/" + ownerId).andExpect(jsonPath("$.name").value("Acme"));
-		assertThat(countCompanies(owner)).isEqualTo(3);
-	}
-
-	String findId(Session in, String name) throws Exception {
-		return TenantContext.callAs(in.organizationId(),
-				() -> companies.list(true).stream().filter(c -> c.name().equals(name)).findFirst().orElseThrow().id())
-			.toString();
+		for (int i = 0; i < creators.length; i++) {
+			String name = "Acme " + i;
+			var result = createAs(creators[i], name, cnpjs[i]).andExpect(status().isCreated())
+				.andExpect(jsonPath("$.name").value(name))
+				.andExpect(jsonPath("$.cnpj").value(expected[i]))
+				.andExpect(jsonPath("$.status").value("ACTIVE"))
+				.andReturn();
+			String id = JsonPath.read(result.getResponse().getContentAsString(), "$.id");
+			assertThat(UUID.fromString(id)).isNotNull();
+			assertThat(result.getResponse().getHeader("Location")).isEqualTo("/api/companies/" + id);
+			getAs(owner, "/api/companies/" + id).andExpect(status().isOk()).andExpect(jsonPath("$.name").value(name));
+		}
+		assertThat(countCompanies(owner)).isEqualTo(2);
 	}
 
 	@Test
