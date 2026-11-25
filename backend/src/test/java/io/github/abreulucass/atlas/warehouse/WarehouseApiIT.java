@@ -480,4 +480,127 @@ class WarehouseApiIT {
 		assertThat(countWarehouses(owner)).isEqualTo(1);
 	}
 
+	String statusOf(Session as, UUID company, UUID id) throws Exception {
+		return JsonPath.read(getAs(as, base(company) + "/" + id).andReturn().getResponse().getContentAsString(),
+				"$.status");
+	}
+
+	@Test
+	void archiveReturns204() throws Exception {
+		Session owner = register();
+		Session admin = joinAs(owner, "ADMIN");
+		UUID company = seedCompany(owner, "Acme");
+
+		for (Session archiver : new Session[] { owner, admin }) {
+			UUID id = seed(owner, company, "Main " + archiver.id(), "C" + archiver.id());
+
+			postAs(archiver, base(company) + "/" + id + "/archive", null).andExpect(status().isNoContent());
+
+			getAs(owner, base(company)).andExpect(jsonPath("$[?(@.id == '%s')]".formatted(id)).isEmpty());
+			getAs(owner, base(company) + "/" + id).andExpect(jsonPath("$.status").value("ARCHIVED"));
+			// archiving an archived warehouse is a no-op
+			postAs(archiver, base(company) + "/" + id + "/archive", null).andExpect(status().isNoContent());
+			assertThat(statusOf(owner, company, id)).isEqualTo("ARCHIVED");
+		}
+		getAs(owner, base(company)).andExpect(jsonPath("$.length()").value(0));
+	}
+
+	@Test
+	void unarchiveReturns204() throws Exception {
+		Session owner = register();
+		Session admin = joinAs(owner, "ADMIN");
+		UUID company = seedCompany(owner, "Acme");
+		UUID active = seed(owner, company, "Active", "ACT");
+
+		for (Session unarchiver : new Session[] { owner, admin }) {
+			UUID id = seedArchived(owner, company, "Gone " + unarchiver.id(), "G" + unarchiver.id());
+
+			postAs(unarchiver, base(company) + "/" + id + "/unarchive", null).andExpect(status().isNoContent());
+
+			getAs(owner, base(company) + "/" + id).andExpect(jsonPath("$.status").value("ACTIVE"));
+			getAs(owner, base(company)).andExpect(jsonPath("$[?(@.id == '%s')]".formatted(id)).isNotEmpty());
+		}
+		// unarchiving an active warehouse is a no-op
+		postAs(owner, base(company) + "/" + active + "/unarchive", null).andExpect(status().isNoContent());
+		assertThat(statusOf(owner, company, active)).isEqualTo("ACTIVE");
+	}
+
+	@Test
+	void memberCannotArchiveOrUnarchive() throws Exception {
+		Session owner = register();
+		Session member = joinAs(owner, "MEMBER");
+		UUID company = seedCompany(owner, "Acme");
+		UUID active = seed(owner, company, "Active", "ACT");
+		UUID archived = seedArchived(owner, company, "Gone", "GONE");
+
+		problem(postAs(member, base(company) + "/" + active + "/archive", null), 403);
+		problem(postAs(member, base(company) + "/" + archived + "/unarchive", null), 403);
+
+		assertThat(statusOf(owner, company, active)).isEqualTo("ACTIVE");
+		assertThat(statusOf(owner, company, archived)).isEqualTo("ARCHIVED");
+	}
+
+	@Test
+	void archiveOtherTenantOtherCompanyOrUnknownReturns404() throws Exception {
+		Session owner = register();
+		Session other = register();
+		UUID company = seedCompany(owner, "Acme");
+		UUID sibling = seedCompany(owner, "Beta");
+		UUID own = seed(owner, company, "Main", "A");
+		UUID foreignCompany = seedCompany(other, "Foreign");
+		UUID foreign = seed(other, foreignCompany, "Main", "A");
+
+		for (String action : new String[] { "archive", "unarchive" }) {
+			problem(postAs(owner, base(company) + "/" + foreign + "/" + action, null), 404);
+			problem(postAs(owner, base(foreignCompany) + "/" + foreign + "/" + action, null), 404);
+			problem(postAs(owner, base(sibling) + "/" + own + "/" + action, null), 404);
+			problem(postAs(owner, base(company) + "/" + UUID.randomUUID() + "/" + action, null), 404);
+			problem(postAs(owner, base(UUID.randomUUID()) + "/" + own + "/" + action, null), 404);
+			problem(postAs(owner, base(company) + "/not-a-uuid/" + action, null), 404);
+		}
+		assertThat(statusOf(other, foreignCompany, foreign)).isEqualTo("ACTIVE");
+		assertThat(statusOf(owner, company, own)).isEqualTo("ACTIVE");
+	}
+
+	@Test
+	void archiveInArchivedOrganizationReturns409() throws Exception {
+		Session owner = register();
+		UUID company = seedCompany(owner, "Acme");
+		UUID active = seed(owner, company, "Active", "ACT");
+		UUID archived = seedArchived(owner, company, "Gone", "GONE");
+		owner().update("update organizations set archived_at = now() where id = ?", owner.organizationId());
+
+		problem(postAs(owner, base(company) + "/" + active + "/archive", null), 409);
+		problem(postAs(owner, base(company) + "/" + archived + "/unarchive", null), 409);
+
+		assertThat(statusOf(owner, company, active)).isEqualTo("ACTIVE");
+		assertThat(statusOf(owner, company, archived)).isEqualTo("ARCHIVED");
+	}
+
+	@Test
+	void archiveInArchivedCompanyReturns204() throws Exception {
+		Session owner = register();
+		UUID company = seedCompany(owner, "Acme");
+		UUID id = seed(owner, company, "Main", "A");
+		asOwnerIn(owner.organizationId(), "update companies set archived_at = now() where id = ?", company);
+
+		postAs(owner, base(company) + "/" + id + "/archive", null).andExpect(status().isNoContent());
+		assertThat(statusOf(owner, company, id)).isEqualTo("ARCHIVED");
+		postAs(owner, base(company) + "/" + id + "/unarchive", null).andExpect(status().isNoContent());
+		assertThat(statusOf(owner, company, id)).isEqualTo("ACTIVE");
+	}
+
+	@Test
+	void archivingCompanyKeepsWarehouses() throws Exception {
+		Session owner = register();
+		UUID company = seedCompany(owner, "Acme");
+		UUID id = seed(owner, company, "Main", "A");
+
+		postAs(owner, "/api/companies/" + company + "/archive", null).andExpect(status().isNoContent());
+
+		getAs(owner, "/api/companies/" + company).andExpect(jsonPath("$.status").value("ARCHIVED"));
+		assertThat(statusOf(owner, company, id)).isEqualTo("ACTIVE");
+		getAs(owner, base(company)).andExpect(jsonPath("$.length()").value(1));
+	}
+
 }
