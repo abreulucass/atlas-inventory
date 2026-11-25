@@ -96,7 +96,7 @@ class AuthService {
 			if (rotated == null) {
 				return null;
 			}
-			if (memberships.findByUserIdAndOrganizationId(rotated.userId(), rotated.organizationId()).isEmpty()) {
+			if (memberships.lockForShare(rotated.userId(), rotated.organizationId()).isEmpty()) {
 				throw new InvalidRefreshTokenException();
 			}
 			return tokens.issue(rotated.userId(), rotated.organizationId(), rotated.familyId());

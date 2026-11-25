@@ -5,13 +5,21 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
+
+import jakarta.persistence.LockModeType;
 
 public interface MembershipRepository extends JpaRepository<Membership, UUID> {
 
 	Optional<Membership> findFirstByUserIdOrderByCreatedAtAscIdAsc(UUID userId);
 
 	Optional<Membership> findByUserIdAndOrganizationId(UUID userId, UUID organizationId);
+
+	// "for share": a removal's delete waits for the token issue holding it, so its revoke sees the new token
+	@Lock(LockModeType.PESSIMISTIC_READ)
+	@Query("select m from Membership m where m.userId = :userId and m.organizationId = :organizationId")
+	Optional<Membership> lockForShare(UUID userId, UUID organizationId);
 
 	long countByOrganizationIdAndRole(UUID organizationId, Role role);
 

@@ -728,6 +728,28 @@ class MemberApiIT {
 	}
 
 	@Test
+	void refreshRacingRemovalLeavesNoLiveToken() throws Exception {
+		for (int round = 0; round < 5; round++) {
+			Session owner = register("Olga");
+			Session member = join(owner, "Mel", "MEMBER");
+			List<java.util.concurrent.Callable<ResultActions>> calls = new java.util.ArrayList<>();
+			for (int i = 0; i < 20; i++) {
+				String refreshToken = switchTo(member, owner.organizationId()).refreshToken();
+				calls.add(() -> mvc.perform(post("/api/auth/refresh").contentType(MediaType.APPLICATION_JSON)
+					.content("{\"refreshToken\": \"%s\"}".formatted(refreshToken))));
+			}
+			calls.add(() -> removeAs(owner, member.userId()));
+
+			List<Integer> statuses = race(calls);
+
+			assertThat(statuses.getLast()).isEqualTo(204);
+			assertThat(statuses.subList(0, statuses.size() - 1)).allMatch(c -> c == 200 || c == 401);
+			assertThat(membershipCount(member.userId(), owner.organizationId())).isZero();
+			assertThat(liveRefreshTokens(member.userId(), owner.organizationId())).isZero();
+		}
+	}
+
+	@Test
 	void concurrentAddsYieldOne201() throws Exception {
 		int threads = 5;
 		var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
