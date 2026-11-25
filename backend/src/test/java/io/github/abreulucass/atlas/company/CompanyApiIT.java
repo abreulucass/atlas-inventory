@@ -3,7 +3,7 @@ package io.github.abreulucass.atlas.company;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -133,6 +133,12 @@ class CompanyApiIT {
 		return TenantContext.callAs(in.organizationId(), () -> companies.list(true).size());
 	}
 
+	static ResultActions problem(ResultActions result, int status) throws Exception {
+		return result.andExpect(status().is(status))
+			.andExpect(content().contentTypeCompatibleWith("application/problem+json"))
+			.andExpect(jsonPath("$.status").value(status));
+	}
+
 	ResultActions getAs(Session as, String path) throws Exception {
 		return mvc.perform(get(path).header("Authorization", as.bearer()));
 	}
@@ -194,9 +200,9 @@ class CompanyApiIT {
 		Session other = register();
 		UUID foreign = seed(other, "Acme", null);
 
-		getAs(owner, "/api/companies/" + foreign).andExpect(status().isNotFound());
-		getAs(owner, "/api/companies/" + UUID.randomUUID()).andExpect(status().isNotFound());
-		getAs(owner, "/api/companies/not-a-uuid").andExpect(status().isNotFound());
+		problem(getAs(owner, "/api/companies/" + foreign), 404);
+		problem(getAs(owner, "/api/companies/" + UUID.randomUUID()), 404);
+		problem(getAs(owner, "/api/companies/not-a-uuid"), 404);
 	}
 
 	@Test
@@ -244,10 +250,10 @@ class CompanyApiIT {
 		seed(owner, "Acme", "11222333000181");
 		seedArchived(owner, "Gone", "12ABC34501DE35");
 
-		createAs(owner, "Acme", null).andExpect(status().isConflict());
-		createAs(owner, "Gone", null).andExpect(status().isConflict());
-		createAs(owner, "Fresh", "11222333000181").andExpect(status().isConflict());
-		createAs(owner, "Fresh", "12ABC34501DE35").andExpect(status().isConflict());
+		problem(createAs(owner, "Acme", null), 409);
+		problem(createAs(owner, "Gone", null), 409);
+		problem(createAs(owner, "Fresh", "11222333000181"), 409);
+		problem(createAs(owner, "Fresh", "12ABC34501DE35"), 409);
 		assertThat(countCompanies(owner)).isEqualTo(2);
 	}
 
@@ -255,10 +261,10 @@ class CompanyApiIT {
 	void createInvalidInputReturns400() throws Exception {
 		Session owner = register();
 
-		createAs(owner, "", null).andExpect(status().isBadRequest());
-		createAs(owner, "   ", null).andExpect(status().isBadRequest());
-		createAs(owner, "x".repeat(121), null).andExpect(status().isBadRequest());
-		createAs(owner, "Acme", "11222333000182").andExpect(status().isBadRequest());
+		problem(createAs(owner, "", null), 400);
+		problem(createAs(owner, "   ", null), 400);
+		problem(createAs(owner, "x".repeat(121), null), 400);
+		problem(createAs(owner, "Acme", "11222333000182"), 400);
 		assertThat(countCompanies(owner)).isZero();
 	}
 
@@ -267,7 +273,7 @@ class CompanyApiIT {
 		Session owner = register();
 		Session member = joinAs(owner, "MEMBER");
 
-		createAs(member, "Acme", null).andExpect(status().isForbidden());
+		problem(createAs(member, "Acme", null), 403);
 		assertThat(countCompanies(owner)).isZero();
 	}
 
@@ -276,7 +282,7 @@ class CompanyApiIT {
 		Session owner = register();
 		owner().update("update organizations set archived_at = now() where id = ?", owner.organizationId());
 
-		createAs(owner, "Acme", null).andExpect(status().isConflict());
+		problem(createAs(owner, "Acme", null), 409);
 		assertThat(countCompanies(owner)).isZero();
 	}
 
