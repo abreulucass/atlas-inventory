@@ -308,6 +308,19 @@ class CompanyApiIT {
 	}
 
 	@Test
+	void repeatedArchiveAndUnarchiveReturn204() throws Exception {
+		Session owner = register();
+		UUID archived = seedArchived(owner, "Archived");
+		UUID active = seed(owner, "Active", null);
+
+		postAs(owner, "/api/companies/" + archived + "/archive", null).andExpect(status().isNoContent());
+		postAs(owner, "/api/companies/" + active + "/unarchive", null).andExpect(status().isNoContent());
+
+		getAs(owner, "/api/companies/" + archived).andExpect(jsonPath("$.status").value("ARCHIVED"));
+		getAs(owner, "/api/companies/" + active).andExpect(jsonPath("$.status").value("ACTIVE"));
+	}
+
+	@Test
 	void unarchiveReturns204() throws Exception {
 		Session owner = register();
 		Session admin = joinAs(owner, "ADMIN");
