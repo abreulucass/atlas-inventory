@@ -104,10 +104,9 @@ class Members {
 		if (userId.equals(CurrentUser.id()) || (callerRole == Role.ADMIN && target.getRole() != Role.MEMBER)) {
 			throw new NotAllowedException();
 		}
-		// revoking first locks the live tokens before the membership row, the order a refresh takes them: no deadlock
-		refreshTokens.revokeAll(userId, organizationId);
+		// Lock order everywhere: membership row first, tokens after. The delete waits for every token issue holding
+		// the row FOR SHARE, so the revoke then sees the tokens they inserted, and later issues find no row.
 		memberships.delete(target);
-		// the delete waits for any token issue holding the row; revoking again catches the token it inserted
 		memberships.flush();
 		refreshTokens.revokeAll(userId, organizationId);
 	}

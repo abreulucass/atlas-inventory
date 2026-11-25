@@ -166,6 +166,53 @@ class MemberApiIT {
 		}
 	}
 
+	ResultActions refresh(String refreshToken) throws Exception {
+		return mvc.perform(post("/api/auth/refresh").contentType(MediaType.APPLICATION_JSON)
+			.content("{\"refreshToken\": \"%s\"}".formatted(refreshToken)));
+	}
+
+	/** A transaction of the database owner, left open so the test decides when its locks are released. */
+	java.sql.Connection ownerTransaction() throws java.sql.SQLException {
+		java.sql.Connection connection = java.sql.DriverManager.getConnection(url, ownerUser, ownerPassword);
+		connection.setAutoCommit(false);
+		return connection;
+	}
+
+	long query(java.sql.Connection connection, String sql, Object... params) throws java.sql.SQLException {
+		try (var statement = connection.prepareStatement(sql)) {
+			for (int i = 0; i < params.length; i++) {
+				statement.setObject(i + 1, params[i]);
+			}
+			try (var rs = statement.executeQuery()) {
+				rs.next();
+				return rs.getObject(1) instanceof Number n ? n.longValue() : 0;
+			}
+		}
+	}
+
+	/** Waits until exactly this many backends wait for a lock. */
+	void awaitLockWaiters(int count) throws InterruptedException {
+		awaitTrue(() -> app.queryForObject("select count(distinct pid) from pg_locks where not granted",
+				Integer.class) == count, count + " lock waiters");
+	}
+
+	/** Waits until a backend waits for the transaction with this id to end. */
+	void awaitWaitingOn(long transactionId) throws InterruptedException {
+		awaitTrue(() -> app.queryForObject(
+				"select count(*) from pg_locks where not granted and locktype = 'transactionid' and transactionid::text = ?",
+				Integer.class, Long.toString(transactionId)) == 1, "a waiter on transaction " + transactionId);
+	}
+
+	void awaitTrue(java.util.function.BooleanSupplier condition, String what) throws InterruptedException {
+		long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(15);
+		while (!condition.getAsBoolean()) {
+			if (System.nanoTime() > deadline) {
+				throw new AssertionError("timed out waiting for " + what);
+			}
+			Thread.sleep(20);
+		}
+	}
+
 	int membershipCount(UUID userId, UUID organizationId) {
 		return app.queryForObject("select count(*) from memberships where user_id = ? and organization_id = ?",
 				Integer.class, userId, organizationId);
@@ -762,6 +809,45 @@ class MemberApiIT {
 		changeAs(owner, "bad-id", "{\"role\": \"MEMBER\"}").andExpect(status().isConflict());
 
 		assertThat(memberCount(owner.organizationId())).isEqualTo(2);
+	}
+
+	@Test
+	void descendantRefreshDuringRemovalNeverDeadlocks() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "Mel", "MEMBER");
+		String other = switchTo(member, owner.organizationId()).refreshToken();
+		String byHash = " from refresh_tokens where token_hash = sha256(convert_to(?, 'UTF8'))";
+		UUID family = app.queryForObject("select family_id" + byHash, UUID.class, member.refreshToken());
+		var pool = java.util.concurrent.Executors.newFixedThreadPool(3);
+		try (var familyLock = ownerTransaction(); var tokenLock = ownerTransaction()) {
+			// holds the first refresh after its membership lock, and the removal inside its revoke
+			query(familyLock, "select 1 from (select pg_advisory_xact_lock(hashtextextended(?, 0))) l", family.toString());
+			query(tokenLock, "select 1" + byHash + " for update", other);
+			long tokenLockXid = query(tokenLock, "select txid_current()");
+
+			var first = pool.submit(() -> refresh(member.refreshToken()).andReturn().getResponse());
+			awaitLockWaiters(1);
+			var removal = pool.submit(() -> removeAs(owner, member.userId()).andReturn().getResponse());
+			awaitLockWaiters(2);
+			familyLock.commit();
+
+			var firstResponse = first.get(30, java.util.concurrent.TimeUnit.SECONDS);
+			assertThat(firstResponse.getStatus()).isEqualTo(200);
+			String descendant = JsonPath.read(firstResponse.getContentAsString(), "$.refreshToken");
+			awaitWaitingOn(tokenLockXid);
+			// the descendant is consumed while the removal has deleted the membership and not committed
+			var second = pool.submit(() -> refresh(descendant).andReturn().getResponse());
+			awaitLockWaiters(2);
+			tokenLock.commit();
+
+			assertThat(removal.get(30, java.util.concurrent.TimeUnit.SECONDS).getStatus()).isEqualTo(204);
+			assertThat(second.get(30, java.util.concurrent.TimeUnit.SECONDS).getStatus()).isIn(200, 401);
+		}
+		finally {
+			pool.shutdownNow();
+		}
+		assertThat(membershipCount(member.userId(), owner.organizationId())).isZero();
+		assertThat(liveRefreshTokens(member.userId(), owner.organizationId())).isZero();
 	}
 
 	@Test

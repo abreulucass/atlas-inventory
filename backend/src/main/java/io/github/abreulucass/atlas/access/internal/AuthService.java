@@ -92,12 +92,17 @@ class AuthService {
 	// not @Transactional: the reuse revocation must commit in its own transaction, after this one is closed
 	TokenPair refresh(String token) {
 		TokenPair pair = transaction.execute(status -> {
+			RefreshTokens.Holder holder = refreshTokens.holderOf(token).orElse(null);
+			if (holder == null) {
+				return null;
+			}
+			// membership row before any token lock, the order a removal takes them
+			if (memberships.lockForShare(holder.userId(), holder.organizationId()).isEmpty()) {
+				throw new InvalidRefreshTokenException();
+			}
 			RefreshTokens.Rotated rotated = refreshTokens.rotate(token).orElse(null);
 			if (rotated == null) {
 				return null;
-			}
-			if (memberships.lockForShare(rotated.userId(), rotated.organizationId()).isEmpty()) {
-				throw new InvalidRefreshTokenException();
 			}
 			return tokens.issue(rotated.userId(), rotated.organizationId(), rotated.familyId());
 		});
