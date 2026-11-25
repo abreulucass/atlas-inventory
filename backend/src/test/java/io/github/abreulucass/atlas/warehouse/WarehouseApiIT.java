@@ -464,12 +464,18 @@ class WarehouseApiIT {
 		Session admin = joinAs(owner, "ADMIN");
 		UUID company = seedCompany(owner, "Acme");
 		createAs(admin, base(company), "Before", "B").andExpect(status().isCreated());
+		UUID active = seed(owner, company, "Active", "ACT");
+		UUID archived = seedArchived(owner, company, "Gone", "GONE");
 
 		owner().update("update memberships set role = 'MEMBER' where user_id = ? and organization_id = ?",
 				admin.userId(), owner.organizationId());
 
 		problem(createAs(admin, base(company), "After", "A"), 403);
-		assertThat(countWarehouses(owner)).isEqualTo(1);
+		problem(postAs(admin, base(company) + "/" + active + "/archive", null), 403);
+		problem(postAs(admin, base(company) + "/" + archived + "/unarchive", null), 403);
+		assertThat(countWarehouses(owner)).isEqualTo(3);
+		assertThat(statusOf(owner, company, active)).isEqualTo("ACTIVE");
+		assertThat(statusOf(owner, company, archived)).isEqualTo("ARCHIVED");
 	}
 
 	@Test
