@@ -143,8 +143,9 @@ class CompanyApiIT {
 		UUID zed = seed(owner, "Zed", null);
 		UUID acme = seed(owner, "Acme", "12ABC34501DE35");
 		seedArchived(owner, "Beta");
+		Session member = joinAs(owner, "MEMBER");
 
-		getAs(owner, "/api/companies").andExpect(status().isOk())
+		getAs(member, "/api/companies").andExpect(status().isOk())
 			.andExpect(jsonPath("$.length()").value(2))
 			.andExpect(jsonPath("$[0].id").value(acme.toString()))
 			.andExpect(jsonPath("$[0].name").value("Acme"))
@@ -161,8 +162,9 @@ class CompanyApiIT {
 		seed(owner, "Zed", null);
 		UUID beta = seedArchived(owner, "Beta");
 		seed(owner, "Acme", null);
+		Session member = joinAs(owner, "MEMBER");
 
-		getAs(owner, "/api/companies?includeArchived=true").andExpect(status().isOk())
+		getAs(member, "/api/companies?includeArchived=true").andExpect(status().isOk())
 			.andExpect(jsonPath("$.length()").value(3))
 			.andExpect(jsonPath("$[0].name").value("Acme"))
 			.andExpect(jsonPath("$[1].id").value(beta.toString()))
