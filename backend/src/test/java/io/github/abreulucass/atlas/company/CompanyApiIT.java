@@ -287,8 +287,16 @@ class CompanyApiIT {
 		owner().update("update memberships set role = 'MEMBER' where user_id = ? and organization_id = ?",
 				admin.userId(), owner.organizationId());
 
+		UUID active = seed(owner, "Active", null);
+		UUID archived = seedArchived(owner, "Archived");
+
 		createAs(admin, "After", null).andExpect(status().isForbidden());
-		assertThat(countCompanies(owner)).isEqualTo(1);
+		postAs(admin, "/api/companies/" + active + "/archive", null).andExpect(status().isForbidden());
+		postAs(admin, "/api/companies/" + archived + "/unarchive", null).andExpect(status().isForbidden());
+
+		assertThat(countCompanies(owner)).isEqualTo(3);
+		getAs(owner, "/api/companies/" + active).andExpect(jsonPath("$.status").value("ACTIVE"));
+		getAs(owner, "/api/companies/" + archived).andExpect(jsonPath("$.status").value("ARCHIVED"));
 	}
 
 	@Test
