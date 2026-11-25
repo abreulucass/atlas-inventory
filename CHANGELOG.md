@@ -16,6 +16,7 @@ Todas as mudanças relevantes ficam neste arquivo. O formato segue o
 - Autenticação (módulo `access`): cadastro com organização, login, refresh com rotação e detecção de reuso, logout, troca de organização e `GET /api/me`; o tenant de cada requisição vem do JWT. Senhas com Argon2id; exige `ATLAS_JWT_SECRET`; decisão D06.
 - API de empresas (`/api/companies`): criar, listar (com `includeArchived`), buscar por id, arquivar e desarquivar; qualquer membro lê, só `OWNER`/`ADMIN` escreve (papel lido do banco a cada requisição, `Permissions` no módulo `access`).
 - Depósitos (módulo `warehouse`) e API (`/api/companies/{companyId}/warehouses`): criar, listar (com `includeArchived`), buscar por id, arquivar e desarquivar; nome e código únicos por empresa, chave composta no banco impede apontar para empresa de outro tenant; qualquer membro lê, só `OWNER`/`ADMIN` escreve; empresa arquivada bloqueia só a criação.
+- Membros da organização (`/api/members`): listar, adicionar usuário já cadastrado por e-mail, mudar papel e remover; `OWNER` gerencia todos, `ADMIN` só `MEMBER`, sempre resta um `OWNER`; a remoção revoga os refresh tokens e o access token antigo recebe `401` na hora (associação conferida a cada requisição).
 
 ### Alterado
 

@@ -17,6 +17,7 @@ import org.springframework.security.oauth2.jwt.JwtClaimsSet;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.JwtEncoderParameters;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 /** Issues the access JWT (15 min) and the opaque refresh token (30 days, stored only as SHA-256). */
 @Component
@@ -32,12 +33,18 @@ class TokenIssuer {
 
 	private final JdbcClient jdbc;
 
-	TokenIssuer(JwtEncoder encoder, JdbcClient jdbc) {
+	private final MembershipRepository memberships;
+
+	TokenIssuer(JwtEncoder encoder, JdbcClient jdbc, MembershipRepository memberships) {
 		this.encoder = encoder;
 		this.jdbc = jdbc;
+		this.memberships = memberships;
 	}
 
+	/** Runs in the caller's transaction and holds the membership row until it commits, so a removal waits for it. */
+	@Transactional
 	TokenPair issue(UUID userId, UUID organizationId, UUID familyId) {
+		memberships.lockForShare(userId, organizationId).orElseThrow(NotAMemberException::new);
 		Instant now = Instant.now();
 		JwtClaimsSet claims = JwtClaimsSet.builder()
 			.subject(userId.toString())

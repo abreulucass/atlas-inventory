@@ -14,10 +14,21 @@ class RefreshTokens {
 	record Rotated(UUID userId, UUID organizationId, UUID familyId) {
 	}
 
+	record Holder(UUID userId, UUID organizationId) {
+	}
+
 	private final JdbcClient jdbc;
 
 	RefreshTokens(JdbcClient jdbc) {
 		this.jdbc = jdbc;
+	}
+
+	/** Whose membership the token belongs to, read without locking anything. */
+	Optional<Holder> holderOf(String token) {
+		return jdbc.sql("select user_id, organization_id from refresh_tokens where token_hash = ?")
+			.param(TokenIssuer.sha256(token))
+			.query((rs, i) -> new Holder(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class)))
+			.optional();
 	}
 
 	/**
@@ -66,6 +77,13 @@ class RefreshTokens {
 			.query((rs, i) -> 1)
 			.single());
 		return family.isPresent();
+	}
+
+	/** Revokes every live token of the user for the organization; runs in the caller's transaction. */
+	void revokeAll(UUID userId, UUID organizationId) {
+		jdbc.sql("update refresh_tokens set revoked_at = now() where user_id = ? and organization_id = ? and revoked_at is null")
+			.params(userId, organizationId)
+			.update();
 	}
 
 	@Transactional
