@@ -433,6 +433,13 @@ class WarehouseApiIT {
 		problem(createAs(owner, base(foreign), "Main", "A"), 404);
 		problem(createAs(owner, base(UUID.randomUUID()), "Main", "A"), 404);
 		problem(createAs(owner, "/api/companies/not-a-uuid/warehouses", "Main", "A"), 404);
+		// the company is judged before the body
+		String unknown = base(UUID.randomUUID());
+		problem(createAs(owner, unknown, "x".repeat(121), "A"), 404);
+		problem(createAs(owner, unknown, "Main", ""), 404);
+		problem(postAs(owner, unknown, "{}"), 404);
+		problem(postAs(owner, unknown, "{\"name\": null, \"code\": null}"), 404);
+		problem(createAs(owner, base(foreign), "x".repeat(121), "A"), 404);
 		assertThat(countWarehouses(owner)).isZero();
 		assertThat(countWarehouses(other)).isZero();
 	}

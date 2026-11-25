@@ -35,13 +35,14 @@ public class Warehouses {
 	public UUID create(UUID companyId, String name, String code) {
 		UUID tenant = TenantContext.require();
 		organizations.requireWritable(tenant);
+		var company = companies.find(companyId);
 		String trimmed = name == null ? "" : name.strip();
 		if (trimmed.isEmpty() || trimmed.codePointCount(0, trimmed.length()) > 120) {
 			throw new InvalidNameException();
 		}
 		String normalized = WarehouseCode.parse(code);
 		// shortcut: a company archived between this check and the insert still gets the warehouse, harmless since archiving a company leaves its warehouses alone; lock the company row if that changes
-		if (companies.find(companyId).status() == io.github.abreulucass.atlas.company.Status.ARCHIVED) {
+		if (company.status() == io.github.abreulucass.atlas.company.Status.ARCHIVED) {
 			throw new CompanyArchivedException(companyId);
 		}
 		try {

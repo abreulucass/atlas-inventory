@@ -15,9 +15,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
-
 import io.github.abreulucass.atlas.access.Permissions;
 import io.github.abreulucass.atlas.warehouse.WarehouseView;
 import io.github.abreulucass.atlas.warehouse.Warehouses;
@@ -35,7 +32,7 @@ class WarehouseController {
 		this.permissions = permissions;
 	}
 
-	record CreateWarehouse(@NotBlank String name, @NotBlank String code) {
+	record CreateWarehouse(String name, String code) {
 	}
 
 	@GetMapping
@@ -49,7 +46,7 @@ class WarehouseController {
 	}
 
 	@PostMapping
-	ResponseEntity<WarehouseView> create(@PathVariable UUID companyId, @Valid @RequestBody CreateWarehouse request) {
+	ResponseEntity<WarehouseView> create(@PathVariable UUID companyId, @RequestBody CreateWarehouse request) {
 		permissions.requireManager();
 		UUID id = warehouses.create(companyId, request.name(), request.code());
 		return ResponseEntity.created(URI.create("/api/companies/" + companyId + "/warehouses/" + id))
