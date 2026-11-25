@@ -493,6 +493,37 @@ class WarehouseApiIT {
 	}
 
 	@Test
+	void concurrentCreatesWithOneCodeYieldOne201() throws Exception {
+		Session owner = register();
+		UUID company = seedCompany(owner, "Acme");
+		int threads = 5;
+		String[] codes = { "dup", "DUP", " dup ", "Dup", "dUp " };
+		var barrier = new java.util.concurrent.CyclicBarrier(threads);
+		var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+		try {
+			var futures = new java.util.ArrayList<java.util.concurrent.Future<Integer>>();
+			for (int i = 0; i < threads; i++) {
+				String name = "Name " + i;
+				String code = codes[i];
+				futures.add(pool.submit(() -> {
+					barrier.await();
+					return createAs(owner, base(company), name, code).andReturn().getResponse().getStatus();
+				}));
+			}
+			var statuses = new java.util.ArrayList<Integer>();
+			for (var f : futures) {
+				statuses.add(f.get(30, java.util.concurrent.TimeUnit.SECONDS));
+			}
+			assertThat(statuses).containsOnly(201, 409);
+			assertThat(statuses.stream().filter(c -> c == 201).count()).isEqualTo(1);
+		}
+		finally {
+			pool.shutdownNow();
+		}
+		assertThat(countWarehouses(owner)).isEqualTo(1);
+	}
+
+	@Test
 	void archiveReturns204() throws Exception {
 		Session owner = register();
 		Session admin = joinAs(owner, "ADMIN");
