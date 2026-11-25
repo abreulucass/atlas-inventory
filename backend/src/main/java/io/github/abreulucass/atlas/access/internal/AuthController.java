@@ -18,6 +18,9 @@ class AuthController {
 			@NotNull String organizationName, @NotNull String organizationSlug) {
 	}
 
+	record LoginRequest(@NotNull String email, @NotNull String password) {
+	}
+
 	private final AuthService service;
 
 	AuthController(AuthService service) {
@@ -29,6 +32,11 @@ class AuthController {
 	TokenPair register(@Valid @RequestBody RegisterRequest request) {
 		return service.register(request.name(), request.email(), request.password(), request.organizationName(),
 				request.organizationSlug());
+	}
+
+	@PostMapping("/login")
+	TokenPair login(@Valid @RequestBody LoginRequest request) {
+		return service.login(request.email(), request.password());
 	}
 
 }

@@ -6,6 +6,7 @@ import java.util.regex.Pattern;
 
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +29,9 @@ class AuthService {
 
 	private final TokenIssuer tokens;
 
+	// checked when the e-mail is unknown, so unknown and wrong-password logins cost the same
+	private final String unknownUserHash;
+
 	AuthService(UserRepository users, MembershipRepository memberships, Organizations organizations,
 			PasswordEncoder passwordEncoder, TokenIssuer tokens) {
 		this.users = users;
@@ -35,6 +39,7 @@ class AuthService {
 		this.organizations = organizations;
 		this.passwordEncoder = passwordEncoder;
 		this.tokens = tokens;
+		this.unknownUserHash = passwordEncoder.encode("unknown-user");
 	}
 
 	@Transactional
@@ -60,6 +65,19 @@ class AuthService {
 		UUID organizationId = organizations.create(organizationName, organizationSlug);
 		memberships.saveAndFlush(new Membership(user.getId(), organizationId, Role.OWNER));
 		return tokens.issue(user.getId(), organizationId, UUID.randomUUID());
+	}
+
+	@Transactional
+	TokenPair login(String email, String password) {
+		User user = users.findByEmail(email == null ? "" : email.strip().toLowerCase(Locale.ROOT)).orElse(null);
+		boolean matches = passwordEncoder.matches(password == null ? "" : password,
+				user == null ? unknownUserHash : user.getPasswordHash());
+		if (user == null || !matches) {
+			throw new BadCredentialsException("Invalid credentials");
+		}
+		Membership membership = memberships.findFirstByUserIdOrderByCreatedAtAscIdAsc(user.getId())
+			.orElseThrow(() -> new BadCredentialsException("Invalid credentials"));
+		return tokens.issue(user.getId(), membership.getOrganizationId(), UUID.randomUUID());
 	}
 
 	static String normalizeEmail(String email) {

@@ -2,6 +2,7 @@ package io.github.abreulucass.atlas.access.internal;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
@@ -18,6 +19,11 @@ class AuthExceptionHandler extends ResponseEntityExceptionHandler {
 			InvalidEmailException.class })
 	ProblemDetail badRequest(RuntimeException e) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
+	}
+
+	@ExceptionHandler(BadCredentialsException.class)
+	ProblemDetail unauthorized(BadCredentialsException e) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, e.getMessage());
 	}
 
 	@ExceptionHandler({ DuplicateEmailException.class, DuplicateSlugException.class })
