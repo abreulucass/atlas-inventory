@@ -296,4 +296,64 @@ class CompanyApiIT {
 		assertThat(countCompanies(owner)).isEqualTo(1);
 	}
 
+	@Test
+	void archiveReturns204() throws Exception {
+		Session owner = register();
+		UUID id = seed(owner, "Acme", null);
+
+		postAs(owner, "/api/companies/" + id + "/archive", null).andExpect(status().isNoContent());
+
+		getAs(owner, "/api/companies").andExpect(jsonPath("$.length()").value(0));
+		getAs(owner, "/api/companies/" + id).andExpect(jsonPath("$.status").value("ARCHIVED"));
+	}
+
+	@Test
+	void unarchiveReturns204() throws Exception {
+		Session owner = register();
+		Session admin = joinAs(owner, "ADMIN");
+		UUID id = seedArchived(owner, "Acme");
+
+		postAs(admin, "/api/companies/" + id + "/unarchive", null).andExpect(status().isNoContent());
+
+		getAs(owner, "/api/companies").andExpect(jsonPath("$.length()").value(1))
+			.andExpect(jsonPath("$[0].status").value("ACTIVE"));
+	}
+
+	@Test
+	void memberCannotArchiveOrUnarchive() throws Exception {
+		Session owner = register();
+		Session member = joinAs(owner, "MEMBER");
+		UUID active = seed(owner, "Active", null);
+		UUID archived = seedArchived(owner, "Archived");
+
+		postAs(member, "/api/companies/" + active + "/archive", null).andExpect(status().isForbidden());
+		postAs(member, "/api/companies/" + archived + "/unarchive", null).andExpect(status().isForbidden());
+
+		getAs(owner, "/api/companies/" + active).andExpect(jsonPath("$.status").value("ACTIVE"));
+		getAs(owner, "/api/companies/" + archived).andExpect(jsonPath("$.status").value("ARCHIVED"));
+	}
+
+	@Test
+	void archiveOtherTenantOrUnknownReturns404() throws Exception {
+		Session owner = register();
+		Session other = register();
+		UUID foreign = seed(other, "Acme", null);
+
+		for (String action : new String[] { "archive", "unarchive" }) {
+			postAs(owner, "/api/companies/" + foreign + "/" + action, null).andExpect(status().isNotFound());
+			postAs(owner, "/api/companies/" + UUID.randomUUID() + "/" + action, null).andExpect(status().isNotFound());
+		}
+		getAs(other, "/api/companies/" + foreign).andExpect(jsonPath("$.status").value("ACTIVE"));
+	}
+
+	@Test
+	void archiveInArchivedOrganizationReturns409() throws Exception {
+		Session owner = register();
+		UUID id = seed(owner, "Acme", null);
+		owner().update("update organizations set archived_at = now() where id = ?", owner.organizationId());
+
+		postAs(owner, "/api/companies/" + id + "/archive", null).andExpect(status().isConflict());
+		postAs(owner, "/api/companies/" + id + "/unarchive", null).andExpect(status().isConflict());
+	}
+
 }
