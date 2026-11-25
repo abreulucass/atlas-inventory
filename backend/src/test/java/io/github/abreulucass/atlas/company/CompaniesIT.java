@@ -561,4 +561,27 @@ class CompaniesIT {
 		}
 	}
 
+	@Test
+	void findsOwnActiveAndArchivedCompanies() throws Exception {
+		UUID org = organization();
+		UUID active = as(org, () -> companies.create("Acme", null));
+		UUID archived = seedArchived(org, "Beta", "12ABC34501DE35");
+
+		assertThat(as(org, () -> companies.find(active))).isEqualTo(new CompanyView(active, "Acme", null, Status.ACTIVE));
+		assertThat(as(org, () -> companies.find(archived)))
+			.isEqualTo(new CompanyView(archived, "Beta", "12ABC34501DE35", Status.ARCHIVED));
+	}
+
+	@Test
+	void findOfOtherTenantOrUnknownIdThrowsNotFound() throws Exception {
+		UUID org = organization();
+		UUID other = organization();
+		UUID otherCompany = as(other, () -> companies.create("Acme", null));
+
+		assertThatThrownBy(() -> as(org, () -> companies.find(otherCompany)))
+			.isInstanceOf(CompanyNotFoundException.class);
+		assertThatThrownBy(() -> as(org, () -> companies.find(UUID.randomUUID())))
+			.isInstanceOf(CompanyNotFoundException.class);
+	}
+
 }
