@@ -21,6 +21,9 @@ class AuthController {
 	record LoginRequest(@NotNull String email, @NotNull String password) {
 	}
 
+	record RefreshRequest(@NotNull String refreshToken) {
+	}
+
 	private final AuthService service;
 
 	AuthController(AuthService service) {
@@ -37,6 +40,11 @@ class AuthController {
 	@PostMapping("/login")
 	TokenPair login(@Valid @RequestBody LoginRequest request) {
 		return service.login(request.email(), request.password());
+	}
+
+	@PostMapping("/refresh")
+	TokenPair refresh(@Valid @RequestBody RefreshRequest request) {
+		return service.refresh(request.refreshToken());
 	}
 
 }

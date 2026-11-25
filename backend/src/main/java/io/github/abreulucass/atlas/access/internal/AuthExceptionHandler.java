@@ -21,8 +21,8 @@ class AuthExceptionHandler extends ResponseEntityExceptionHandler {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
 	}
 
-	@ExceptionHandler(BadCredentialsException.class)
-	ProblemDetail unauthorized(BadCredentialsException e) {
+	@ExceptionHandler({ BadCredentialsException.class, InvalidRefreshTokenException.class })
+	ProblemDetail unauthorized(RuntimeException e) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.UNAUTHORIZED, e.getMessage());
 	}
 
