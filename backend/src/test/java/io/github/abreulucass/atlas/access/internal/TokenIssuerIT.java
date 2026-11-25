@@ -40,6 +40,9 @@ class TokenIssuerIT {
 		app.update("insert into users (id, name, email, password_hash, created_at) values (?, 'N', ?, 'h', now())", user,
 				user + "@example.com");
 		app.update("insert into organizations (id, name, slug) values (?, 'O', ?)", org, "o-" + org);
+		// the decoder accepts only tokens of an existing membership
+		app.update("insert into memberships (id, user_id, organization_id, role, created_at) values (?, ?, ?, 'OWNER', now())",
+				UUID.randomUUID(), user, org);
 		Instant before = Instant.now();
 
 		TokenPair pair = issuer.issue(user, org, family);

@@ -14,12 +14,14 @@ import javax.crypto.spec.SecretKeySpec;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
 import org.springframework.security.oauth2.jwt.JwsHeader;
 import org.springframework.security.oauth2.jwt.JwtClaimsSet;
@@ -72,6 +74,15 @@ class AuthenticatedRequestIT {
 
 	@Autowired
 	JdbcTemplate app;
+
+	@Value("${spring.datasource.url}")
+	String url;
+
+	@Value("${spring.flyway.user}")
+	String ownerUser;
+
+	@Value("${spring.flyway.password}")
+	String ownerPassword;
 
 	record Session(String id, String accessToken, String refreshToken, UUID userId, UUID organizationId) {
 
@@ -223,6 +234,19 @@ class AuthenticatedRequestIT {
 		mvc.perform(post("/api/auth/logout").contentType(MediaType.APPLICATION_JSON)
 			.content("{\"refreshToken\": \"unknown\"}")).andExpect(status().isNoContent());
 		getWith("/actuator/health", null).andExpect(status().isOk());
+	}
+
+	@Test
+	void removedMembershipTokenReturns401() throws Exception {
+		Session ana = register("Ana");
+		getWith("/api/companies", ana.bearer()).andExpect(status().isOk());
+
+		new JdbcTemplate(new DriverManagerDataSource(url, ownerUser, ownerPassword)).update(
+				"delete from memberships where user_id = ? and organization_id = ?", ana.userId(),
+				ana.organizationId());
+
+		getWith("/api/companies", ana.bearer()).andExpect(status().isUnauthorized());
+		getWith("/api/me", ana.bearer()).andExpect(status().isUnauthorized());
 	}
 
 }
