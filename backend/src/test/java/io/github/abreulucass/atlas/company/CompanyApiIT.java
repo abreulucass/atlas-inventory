@@ -1,7 +1,9 @@
 package io.github.abreulucass.atlas.company;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -95,21 +97,40 @@ class CompanyApiIT {
 
 	// RLS is forced on the owner too, so it seeds inside the tenant it writes to
 	UUID seedArchived(Session in, String name) {
+		return seedArchived(in, name, null);
+	}
+
+	UUID seedArchived(Session in, String name, String cnpj) {
 		UUID id = UUID.randomUUID();
 		owner().execute((ConnectionCallback<Void>) connection -> {
 			try (var setting = connection.prepareStatement("select set_config('app.tenant_id', ?, false)");
 					var insert = connection.prepareStatement(
-							"insert into companies (id, tenant_id, name, archived_at) values (?, ?, ?, now())")) {
+							"insert into companies (id, tenant_id, name, cnpj, archived_at) values (?, ?, ?, ?, now())")) {
 				setting.setString(1, in.organizationId().toString());
 				setting.execute();
 				insert.setObject(1, id);
 				insert.setObject(2, in.organizationId());
 				insert.setString(3, name);
+				insert.setString(4, cnpj);
 				insert.executeUpdate();
 			}
 			return null;
 		});
 		return id;
+	}
+
+	ResultActions postAs(Session as, String path, String json) throws Exception {
+		var request = post(path).header("Authorization", as.bearer());
+		return mvc.perform(json == null ? request : request.contentType(MediaType.APPLICATION_JSON).content(json));
+	}
+
+	ResultActions createAs(Session as, String name, String cnpj) throws Exception {
+		return postAs(as, "/api/companies", cnpj == null ? "{\"name\": \"%s\"}".formatted(name)
+				: "{\"name\": \"%s\", \"cnpj\": \"%s\"}".formatted(name, cnpj));
+	}
+
+	int countCompanies(Session in) throws Exception {
+		return TenantContext.callAs(in.organizationId(), () -> companies.list(true).size());
 	}
 
 	ResultActions getAs(Session as, String path) throws Exception {
@@ -190,6 +211,89 @@ class CompanyApiIT {
 		getAs(second, "/api/companies?includeArchived=true").andExpect(status().isOk())
 			.andExpect(jsonPath("$.length()").value(1))
 			.andExpect(jsonPath("$[0].name").value("Second Co"));
+	}
+
+	@Test
+	void createReturns201WithLocation() throws Exception {
+		Session owner = register();
+		Session admin = joinAs(owner, "ADMIN");
+
+		String ownerBody = createAs(owner, "Acme", "11.222.333/0001-81").andExpect(status().isCreated())
+			.andExpect(jsonPath("$.name").value("Acme"))
+			.andExpect(jsonPath("$.cnpj").value("11222333000181"))
+			.andExpect(jsonPath("$.status").value("ACTIVE"))
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		String ownerId = JsonPath.read(ownerBody, "$.id");
+		createAs(owner, "Acme 2", null).andExpect(header().string("Location", "/api/companies/" + findId(owner, "Acme 2")));
+
+		createAs(admin, "Beta", null).andExpect(status().isCreated())
+			.andExpect(jsonPath("$.name").value("Beta"))
+			.andExpect(jsonPath("$.cnpj").value((Object) null));
+		getAs(owner, "/api/companies/" + ownerId).andExpect(jsonPath("$.name").value("Acme"));
+		assertThat(countCompanies(owner)).isEqualTo(3);
+	}
+
+	String findId(Session in, String name) throws Exception {
+		return TenantContext.callAs(in.organizationId(),
+				() -> companies.list(true).stream().filter(c -> c.name().equals(name)).findFirst().orElseThrow().id())
+			.toString();
+	}
+
+	@Test
+	void createDuplicateNameOrCnpjReturns409() throws Exception {
+		Session owner = register();
+		seed(owner, "Acme", "11222333000181");
+		seedArchived(owner, "Gone", "12ABC34501DE35");
+
+		createAs(owner, "Acme", null).andExpect(status().isConflict());
+		createAs(owner, "Gone", null).andExpect(status().isConflict());
+		createAs(owner, "Fresh", "11222333000181").andExpect(status().isConflict());
+		createAs(owner, "Fresh", "12ABC34501DE35").andExpect(status().isConflict());
+		assertThat(countCompanies(owner)).isEqualTo(2);
+	}
+
+	@Test
+	void createInvalidInputReturns400() throws Exception {
+		Session owner = register();
+
+		createAs(owner, "", null).andExpect(status().isBadRequest());
+		createAs(owner, "   ", null).andExpect(status().isBadRequest());
+		createAs(owner, "x".repeat(121), null).andExpect(status().isBadRequest());
+		createAs(owner, "Acme", "11222333000182").andExpect(status().isBadRequest());
+		assertThat(countCompanies(owner)).isZero();
+	}
+
+	@Test
+	void memberCannotCreate() throws Exception {
+		Session owner = register();
+		Session member = joinAs(owner, "MEMBER");
+
+		createAs(member, "Acme", null).andExpect(status().isForbidden());
+		assertThat(countCompanies(owner)).isZero();
+	}
+
+	@Test
+	void createInArchivedOrganizationReturns409() throws Exception {
+		Session owner = register();
+		owner().update("update organizations set archived_at = now() where id = ?", owner.organizationId());
+
+		createAs(owner, "Acme", null).andExpect(status().isConflict());
+		assertThat(countCompanies(owner)).isZero();
+	}
+
+	@Test
+	void demotedUserLosesWriteImmediately() throws Exception {
+		Session owner = register();
+		Session admin = joinAs(owner, "ADMIN");
+		createAs(admin, "Before", null).andExpect(status().isCreated());
+
+		owner().update("update memberships set role = 'MEMBER' where user_id = ? and organization_id = ?",
+				admin.userId(), owner.organizationId());
+
+		createAs(admin, "After", null).andExpect(status().isForbidden());
+		assertThat(countCompanies(owner)).isEqualTo(1);
 	}
 
 }
