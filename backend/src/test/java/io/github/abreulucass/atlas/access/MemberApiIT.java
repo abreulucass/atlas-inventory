@@ -975,6 +975,35 @@ class MemberApiIT {
 	}
 
 	@Test
+	void callerDemotedWhileWaitingGets403() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "Adam", "ADMIN");
+		Session member = join(owner, "Mel", "MEMBER");
+		var pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+		try (var memberLock = ownerTransaction()) {
+			query(memberLock, "select 1 from (select pg_advisory_xact_lock(hashtextextended(?, 0))) l",
+					"members:" + owner.organizationId());
+			var removal = pool.submit(() -> removeAs(admin, member.userId()).andReturn().getResponse());
+			awaitLockWaiters(1);
+			try (var demote = memberLock.prepareStatement(
+					"update memberships set role = 'MEMBER' where user_id = ? and organization_id = ?")) {
+				demote.setObject(1, admin.userId());
+				demote.setObject(2, owner.organizationId());
+				assertThat(demote.executeUpdate()).isEqualTo(1);
+			}
+			memberLock.commit();
+
+			assertThat(removal.get(30, java.util.concurrent.TimeUnit.SECONDS).getStatus()).isEqualTo(403);
+		}
+		finally {
+			pool.shutdownNow();
+		}
+		assertThat(roleOf(member.userId(), owner.organizationId())).isEqualTo("MEMBER");
+		assertThat(roleOf(admin.userId(), owner.organizationId())).isEqualTo("MEMBER");
+		assertThat(memberCount(owner.organizationId())).isEqualTo(3);
+	}
+
+	@Test
 	void concurrentAddsYieldOne201() throws Exception {
 		int threads = 5;
 		var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
