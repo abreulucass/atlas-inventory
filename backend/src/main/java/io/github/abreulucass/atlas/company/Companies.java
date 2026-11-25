@@ -57,10 +57,17 @@ public class Companies {
 		TenantContext.require();
 		List<Company> found = includeArchived ? repository.findAllByOrderByNameAsc()
 				: repository.findByArchivedAtIsNullOrderByNameAsc();
-		return found.stream()
-			.map(c -> new CompanyView(c.getId(), c.getName(), c.getCnpj(),
-					c.isArchived() ? Status.ARCHIVED : Status.ACTIVE))
-			.toList();
+		return found.stream().map(Companies::view).toList();
+	}
+
+	@Transactional(readOnly = true)
+	public CompanyView find(UUID id) {
+		TenantContext.require();
+		return view(repository.findById(id).orElseThrow(() -> new CompanyNotFoundException(id)));
+	}
+
+	private static CompanyView view(Company c) {
+		return new CompanyView(c.getId(), c.getName(), c.getCnpj(), c.isArchived() ? Status.ARCHIVED : Status.ACTIVE);
 	}
 
 	@Transactional

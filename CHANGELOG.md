@@ -14,6 +14,7 @@ Todas as mudanças relevantes ficam neste arquivo. O formato segue o
 - Empresas (módulo `company`): criar, listar, arquivar e desarquivar no tenant atual, com nome e CNPJ (numérico ou alfanumérico) únicos na organização.
 - Isolamento por tenant: contexto em `TenantContext`, `set_config` em toda transação e RLS forçada em `companies`, provados por testes conectados como `atlas_app`; decisões D04 e D05.
 - Autenticação (módulo `access`): cadastro com organização, login, refresh com rotação e detecção de reuso, logout, troca de organização e `GET /api/me`; o tenant de cada requisição vem do JWT. Senhas com Argon2id; exige `ATLAS_JWT_SECRET`; decisão D06.
+- API de empresas (`/api/companies`): criar, listar (com `includeArchived`), buscar por id, arquivar e desarquivar; qualquer membro lê, só `OWNER`/`ADMIN` escreve (papel lido do banco a cada requisição, `Permissions` no módulo `access`).
 
 ### Alterado
 
