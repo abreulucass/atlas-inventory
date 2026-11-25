@@ -111,9 +111,16 @@ class RefreshIT {
 	void rejectsWhenMembershipGone() throws Exception {
 		AuthFixture f = fixture();
 		Session ana = f.register();
-		app.update("delete from memberships where user_id = ?", ana.userId());
+		UUID other = UUID.randomUUID();
+		app.update("insert into organizations (id, name, slug) values (?, 'Other', ?)", other, "other-" + ana.id());
+		app.update("insert into memberships (id, user_id, organization_id, role, created_at) "
+				+ "values (?, ?, ?, 'ADMIN', now())", UUID.randomUUID(), ana.userId(), other);
+		app.update("delete from memberships where user_id = ? and organization_id = ?", ana.userId(),
+				ana.organizationId());
 
 		f.refresh(ana.refreshToken()).andExpect(status().isUnauthorized());
+		assertThat(app.queryForObject("select count(*) from memberships where user_id = ?", Integer.class,
+				ana.userId())).isEqualTo(1);
 	}
 
 	@Test
