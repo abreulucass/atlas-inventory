@@ -31,4 +31,9 @@ class AuthExceptionHandler extends ResponseEntityExceptionHandler {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
 	}
 
+	@ExceptionHandler(NotAMemberException.class)
+	ProblemDetail forbidden(NotAMemberException e) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, e.getMessage());
+	}
+
 }

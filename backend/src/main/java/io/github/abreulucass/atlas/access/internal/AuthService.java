@@ -108,6 +108,14 @@ class AuthService {
 		return pair;
 	}
 
+	@Transactional
+	TokenPair switchOrganization(UUID userId, UUID organizationId) {
+		if (memberships.findByUserIdAndOrganizationId(userId, organizationId).isEmpty()) {
+			throw new NotAMemberException();
+		}
+		return tokens.issue(userId, organizationId, UUID.randomUUID());
+	}
+
 	void logout(String token) {
 		refreshTokens.revoke(token);
 	}

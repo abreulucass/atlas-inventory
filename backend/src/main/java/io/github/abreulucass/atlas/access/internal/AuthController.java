@@ -1,5 +1,7 @@
 package io.github.abreulucass.atlas.access.internal;
 
+import java.util.UUID;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -7,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.github.abreulucass.atlas.access.CurrentUser;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 
@@ -22,6 +25,9 @@ class AuthController {
 	}
 
 	record RefreshRequest(@NotNull String refreshToken) {
+	}
+
+	record SwitchRequest(@NotNull UUID organizationId) {
 	}
 
 	private final AuthService service;
@@ -51,6 +57,11 @@ class AuthController {
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	void logout(@Valid @RequestBody RefreshRequest request) {
 		service.logout(request.refreshToken());
+	}
+
+	@PostMapping("/switch-organization")
+	TokenPair switchOrganization(@Valid @RequestBody SwitchRequest request) {
+		return service.switchOrganization(CurrentUser.id(), request.organizationId());
 	}
 
 }
