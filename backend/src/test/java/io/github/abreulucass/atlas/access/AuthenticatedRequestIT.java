@@ -208,14 +208,20 @@ class AuthenticatedRequestIT {
 
 	@Test
 	void publicEndpointsNeedNoToken() throws Exception {
-		for (String path : List.of("/api/auth/register", "/api/auth/login", "/api/auth/refresh",
-				"/api/auth/logout")) {
-			int status = mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content("{}"))
-				.andReturn()
-				.getResponse()
-				.getStatus();
-			assertThat(status).as(path).isNotEqualTo(401);
+		// empty or unknown payloads: each endpoint answers its own status, never 401 for a missing token
+		java.util.Map<String, Integer> expected = java.util.Map.of("/api/auth/register", 400, "/api/auth/login", 400,
+				"/api/auth/refresh", 400, "/api/auth/logout", 400);
+		for (var entry : expected.entrySet()) {
+			mvc.perform(post(entry.getKey()).contentType(MediaType.APPLICATION_JSON).content("{}"))
+				.andExpect(status().is(entry.getValue()));
 		}
+		mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+			.content("{\"email\": \"nobody@example.com\", \"password\": \"%s\"}".formatted(PASSWORD)))
+			.andExpect(status().isUnauthorized());
+		mvc.perform(post("/api/auth/refresh").contentType(MediaType.APPLICATION_JSON)
+			.content("{\"refreshToken\": \"unknown\"}")).andExpect(status().isUnauthorized());
+		mvc.perform(post("/api/auth/logout").contentType(MediaType.APPLICATION_JSON)
+			.content("{\"refreshToken\": \"unknown\"}")).andExpect(status().isNoContent());
 		getWith("/actuator/health", null).andExpect(status().isOk());
 	}
 
