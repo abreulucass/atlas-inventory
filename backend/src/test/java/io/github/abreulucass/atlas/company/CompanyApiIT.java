@@ -294,24 +294,32 @@ class CompanyApiIT {
 	@Test
 	void archiveReturns204() throws Exception {
 		Session owner = register();
-		UUID id = seed(owner, "Acme", null);
+		Session admin = joinAs(owner, "ADMIN");
 
-		postAs(owner, "/api/companies/" + id + "/archive", null).andExpect(status().isNoContent());
+		for (Session archiver : new Session[] { owner, admin }) {
+			UUID id = seed(owner, "Acme " + archiver.id(), null);
 
+			postAs(archiver, "/api/companies/" + id + "/archive", null).andExpect(status().isNoContent());
+
+			getAs(owner, "/api/companies").andExpect(jsonPath("$[?(@.id == '%s')]".formatted(id)).isEmpty());
+			getAs(owner, "/api/companies/" + id).andExpect(jsonPath("$.status").value("ARCHIVED"));
+		}
 		getAs(owner, "/api/companies").andExpect(jsonPath("$.length()").value(0));
-		getAs(owner, "/api/companies/" + id).andExpect(jsonPath("$.status").value("ARCHIVED"));
 	}
 
 	@Test
 	void unarchiveReturns204() throws Exception {
 		Session owner = register();
 		Session admin = joinAs(owner, "ADMIN");
-		UUID id = seedArchived(owner, "Acme");
 
-		postAs(admin, "/api/companies/" + id + "/unarchive", null).andExpect(status().isNoContent());
+		for (Session unarchiver : new Session[] { owner, admin }) {
+			UUID id = seedArchived(owner, "Acme " + unarchiver.id());
 
-		getAs(owner, "/api/companies").andExpect(jsonPath("$.length()").value(1))
-			.andExpect(jsonPath("$[0].status").value("ACTIVE"));
+			postAs(unarchiver, "/api/companies/" + id + "/unarchive", null).andExpect(status().isNoContent());
+
+			getAs(owner, "/api/companies/" + id).andExpect(jsonPath("$.status").value("ACTIVE"));
+			getAs(owner, "/api/companies").andExpect(jsonPath("$[?(@.id == '%s')]".formatted(id)).isNotEmpty());
+		}
 	}
 
 	@Test
