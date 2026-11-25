@@ -218,6 +218,12 @@ class MemberApiIT {
 				Integer.class, userId, organizationId);
 	}
 
+	Map<String, Object> membershipRow(UUID userId, UUID organizationId) {
+		return app.queryForMap("""
+				select id, user_id, organization_id, role, created_at from memberships
+				where user_id = ? and organization_id = ?""", userId, organizationId);
+	}
+
 	int memberCount(UUID organizationId) {
 		return app.queryForObject("select count(*) from memberships where organization_id = ?", Integer.class,
 				organizationId);
@@ -384,9 +390,14 @@ class MemberApiIT {
 		Session owner = register("Olga");
 		Session user = register("Ana");
 		addAs(owner, user.email(), "MEMBER").andExpect(status().isCreated());
+		Map<String, Object> userRow = membershipRow(user.userId(), owner.organizationId());
+		Map<String, Object> ownerRow = membershipRow(owner.userId(), owner.organizationId());
 
 		addAs(owner, user.email(), "ADMIN").andExpect(status().isConflict());
 		addAs(owner, owner.email(), "MEMBER").andExpect(status().isConflict());
+
+		assertThat(membershipRow(user.userId(), owner.organizationId())).isEqualTo(userRow);
+		assertThat(membershipRow(owner.userId(), owner.organizationId())).isEqualTo(ownerRow);
 
 		assertThat(membershipCount(user.userId(), owner.organizationId())).isEqualTo(1);
 		assertThat(roleOf(user.userId(), owner.organizationId())).isEqualTo("MEMBER");
@@ -475,6 +486,8 @@ class MemberApiIT {
 	void sameRoleReturns200() throws Exception {
 		Session owner = register("Olga");
 		Session admin = join(owner, "Adam", "ADMIN");
+		Map<String, Object> adminRow = membershipRow(admin.userId(), owner.organizationId());
+		Map<String, Object> ownerRow = membershipRow(owner.userId(), owner.organizationId());
 
 		changeAs(owner, admin, "ADMIN").andExpect(status().isOk())
 			.andExpect(jsonPath("$.userId").value(admin.userId().toString()))
@@ -482,6 +495,9 @@ class MemberApiIT {
 			.andExpect(jsonPath("$.email").value(admin.email()))
 			.andExpect(jsonPath("$.role").value("ADMIN"));
 		changeAs(owner, owner, "OWNER").andExpect(status().isOk()).andExpect(jsonPath("$.role").value("OWNER"));
+
+		assertThat(membershipRow(admin.userId(), owner.organizationId())).isEqualTo(adminRow);
+		assertThat(membershipRow(owner.userId(), owner.organizationId())).isEqualTo(ownerRow);
 
 		assertThat(roleOf(admin.userId(), owner.organizationId())).isEqualTo("ADMIN");
 		assertThat(roleOf(owner.userId(), owner.organizationId())).isEqualTo("OWNER");
