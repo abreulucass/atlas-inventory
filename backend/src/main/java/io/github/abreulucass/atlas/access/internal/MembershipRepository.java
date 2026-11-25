@@ -9,4 +9,6 @@ public interface MembershipRepository extends JpaRepository<Membership, UUID> {
 
 	Optional<Membership> findFirstByUserIdOrderByCreatedAtAscIdAsc(UUID userId);
 
+	Optional<Membership> findByUserIdAndOrganizationId(UUID userId, UUID organizationId);
+
 }

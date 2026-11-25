@@ -22,6 +22,7 @@ import org.springframework.security.oauth2.jwt.JwtDecoder;
 import org.springframework.security.oauth2.jwt.JwtEncoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
 
@@ -44,6 +45,7 @@ class SecurityConfiguration {
 				.permitAll()
 				.anyRequest()
 				.authenticated())
+			.addFilterAfter(new TenantContextFilter(), BearerTokenAuthenticationFilter.class)
 			.exceptionHandling(e -> e.authenticationEntryPoint(entryPoint))
 			.oauth2ResourceServer(o -> o.jwt(Customizer.withDefaults()).authenticationEntryPoint(entryPoint));
 		return http.build();
