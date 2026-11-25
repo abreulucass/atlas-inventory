@@ -46,3 +46,11 @@ Registro numerado de decisões de produto e técnicas menores. Decisões de arqu
 - **Decisão:** `access` guarda as organizações e o contexto de tenant; usuários e memberships entram nele depois. `company` guarda as empresas e usa só a API pública de `access`.
 - **Motivo:** organização e contexto de tenant mudam juntos com a autenticação. Descartados: `tenancy` + `organization` + `company`, e um módulo só.
 - **Impacto:** o `ModularityTest` verifica `company` → `access`; `Company` guarda só o id da organização, sem relação JPA entre módulos ([ADR-001](adr/ADR-001-monolito-modular.md)).
+
+## D06: Autenticação própria com JWT HS256 e refresh token rotativo
+
+- **Data:** 2026-11-24
+- **Decisão:** `access` emite o access JWT (15 min, claims `sub` e `org`) e um refresh token opaco (30 dias, guardado só como SHA-256), validados pelo resource server do Spring Security. O refresh é rotacionado por um `UPDATE` condicional; reusar um token já rotado revoga a cadeia inteira. Senhas com Argon2id (Bouncy Castle).
+- **Motivo:** serviço único, sem distribuição de chaves; o banco resolve a concorrência do refresh sem lock explícito. O tenant só vem do claim `org`, emitido após checar a membership. Descartados: sessão HTTP e filtro JWT escrito à mão.
+- **Impacto:** `ATLAS_JWT_SECRET` (≥ 32 bytes) é obrigatório. O `TenantContext` é preso à thread da requisição, então nenhum endpoint pode ser assíncrono. Limitação aceita: sem rate limit de login ([spec](../.specs/features/12-authentication/spec.md)).
+
