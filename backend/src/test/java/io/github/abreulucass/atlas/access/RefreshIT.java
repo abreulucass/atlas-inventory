@@ -143,6 +143,39 @@ class RefreshIT {
 	}
 
 	@Test
+	void reuseRaceLeavesNoLiveDescendant() throws Exception {
+		AuthFixture f = fixture();
+		try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+			for (int round = 0; round < 25; round++) {
+				Session ana = f.register();
+				String descendant = JsonPath.read(f.refresh(ana.refreshToken())
+					.andExpect(status().isOk())
+					.andReturn()
+					.getResponse()
+					.getContentAsString(), "$.refreshToken");
+				CountDownLatch start = new CountDownLatch(1);
+				Future<Integer> reuse = pool.submit(() -> {
+					start.await();
+					return f.refresh(ana.refreshToken()).andReturn().getResponse().getStatus();
+				});
+				Future<String> rotation = pool.submit(() -> {
+					start.await();
+					var res = f.refresh(descendant).andReturn().getResponse();
+					return res.getStatus() == 200 ? JsonPath.read(res.getContentAsString(), "$.refreshToken") : null;
+				});
+				start.countDown();
+
+				assertThat(reuse.get()).isEqualTo(401);
+				String grandchild = rotation.get();
+				assertThat(liveTokens(ana.userId())).as("round %d", round).isZero();
+				if (grandchild != null) {
+					f.refresh(grandchild).andExpect(status().isUnauthorized());
+				}
+			}
+		}
+	}
+
+	@Test
 	void storesOnlyTokenHash() throws Exception {
 		AuthFixture f = fixture();
 		Session ana = f.register();
