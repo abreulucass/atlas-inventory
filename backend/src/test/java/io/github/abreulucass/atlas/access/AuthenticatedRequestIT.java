@@ -185,8 +185,25 @@ class AuthenticatedRequestIT {
 			.param("organizationId", other)
 			.header("Authorization", ana.bearer()))
 			.andExpect(status().isOk());
-		assertThat(namesFor(ana)).containsExactly("Ana Co");
+		mvc.perform(post("/api/test/companies").param("name", "Ana Co 2")
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"organizationId\": \"%s\", \"organization_id\": \"%s\", \"tenantId\": \"%s\"}"
+				.formatted(other, other, other))
+			.header("Authorization", ana.bearer()))
+			.andExpect(status().isOk());
+		String refreshed = mvc.perform(post("/api/auth/refresh").contentType(MediaType.APPLICATION_JSON)
+			.content("{\"refreshToken\": \"%s\", \"organizationId\": \"%s\"}".formatted(ana.refreshToken(),
+					other)))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		getWith("/api/me", "Bearer " + JsonPath.read(refreshed, "$.accessToken")).andExpect(status().isOk())
+			.andExpect(jsonPath("$.organizationId").value(ana.organizationId().toString()));
+		assertThat(namesFor(ana)).containsExactlyInAnyOrder("Ana Co", "Ana Co 2");
 		assertThat(namesFor(bob)).containsExactly("Bob Co");
+		getWith("/api/me", ana.bearer()).andExpect(status().isOk())
+			.andExpect(jsonPath("$.organizationId").value(ana.organizationId().toString()));
 	}
 
 	@Test
