@@ -867,6 +867,28 @@ class MemberApiIT {
 	}
 
 	@Test
+	void everyRoleListsMembers() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "Adam", "ADMIN");
+		Session member = join(owner, "Mel", "MEMBER");
+		register("Sara");
+		Map<String, String> expected = Map.of(owner.userId().toString(), "OWNER", admin.userId().toString(), "ADMIN",
+				member.userId().toString(), "MEMBER");
+
+		for (Session as : List.of(owner, admin, member)) {
+			String body = listAs(as).andExpect(status().isOk())
+				.andExpect(jsonPath("$.length()").value(3))
+				.andReturn()
+				.getResponse()
+				.getContentAsString();
+			List<Map<String, String>> listed = JsonPath.read(body, "$[*]");
+			assertThat(listed).allSatisfy(m -> assertThat(m.get("role")).isEqualTo(expected.get(m.get("userId"))));
+			assertThat(listed.stream().map(m -> m.get("userId")).toList())
+				.containsExactlyInAnyOrderElementsOf(expected.keySet());
+		}
+	}
+
+	@Test
 	void concurrentAddsYieldOne201() throws Exception {
 		int threads = 5;
 		var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
