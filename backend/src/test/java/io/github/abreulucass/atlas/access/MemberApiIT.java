@@ -5,6 +5,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -87,6 +88,55 @@ class MemberApiIT {
 		return mvc.perform(get("/api/members").header("Authorization", as.bearer()));
 	}
 
+	ResultActions addAs(Session as, String json) throws Exception {
+		return mvc.perform(post("/api/members").header("Authorization", as.bearer())
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(json));
+	}
+
+	ResultActions addAs(Session as, String email, String role) throws Exception {
+		return addAs(as, "{\"email\": \"%s\", \"role\": \"%s\"}".formatted(email, role));
+	}
+
+	/** Switches the user's tokens to the organization. */
+	Session switchTo(Session user, UUID organizationId) throws Exception {
+		String body = mvc.perform(post("/api/auth/switch-organization").header("Authorization", user.bearer())
+			.contentType(MediaType.APPLICATION_JSON)
+			.content("{\"organizationId\": \"%s\"}".formatted(organizationId)))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		return new Session(user.name(), user.email(), "Bearer " + JsonPath.read(body, "$.accessToken"),
+				JsonPath.read(body, "$.refreshToken"), user.userId(), organizationId);
+	}
+
+	/** A newly registered user that the manager adds with the role, holding tokens for the manager's organization. */
+	Session join(Session manager, String name, String role) throws Exception {
+		Session user = register(name);
+		addAs(manager, user.email(), role).andExpect(status().isCreated());
+		return switchTo(user, manager.organizationId());
+	}
+
+	int membershipCount(UUID userId, UUID organizationId) {
+		return app.queryForObject("select count(*) from memberships where user_id = ? and organization_id = ?",
+				Integer.class, userId, organizationId);
+	}
+
+	int memberCount(UUID organizationId) {
+		return app.queryForObject("select count(*) from memberships where organization_id = ?", Integer.class,
+				organizationId);
+	}
+
+	String roleOf(UUID userId, UUID organizationId) {
+		return app.queryForObject("select role from memberships where user_id = ? and organization_id = ?",
+				String.class, userId, organizationId);
+	}
+
+	void archive(UUID organizationId) {
+		owner().update("update organizations set archived_at = now() where id = ?", organizationId);
+	}
+
 	@Test
 	void listReturnsMembersOrderedByNameThenEmail() throws Exception {
 		Session carla = register("Carla");
@@ -149,6 +199,190 @@ class MemberApiIT {
 				ana.userId())).isEqualTo(1);
 		assertThat(app.queryForObject("select role from memberships where user_id = ?", String.class, ana.userId()))
 			.isEqualTo("OWNER");
+	}
+
+	@Test
+	void ownerAddsWithAnyRole() throws Exception {
+		Session owner = register("Olga");
+		for (String role : List.of("OWNER", "ADMIN", "MEMBER")) {
+			Session user = register("User " + role);
+
+			addAs(owner, user.email(), role).andExpect(status().isCreated())
+				.andExpect(header().string("Location", "/api/members/" + user.userId()))
+				.andExpect(jsonPath("$.userId").value(user.userId().toString()))
+				.andExpect(jsonPath("$.name").value(user.name()))
+				.andExpect(jsonPath("$.email").value(user.email()))
+				.andExpect(jsonPath("$.role").value(role));
+
+			assertThat(roleOf(user.userId(), owner.organizationId())).isEqualTo(role);
+		}
+		assertThat(memberCount(owner.organizationId())).isEqualTo(4);
+	}
+
+	@Test
+	void adminAddsMember() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "Adam", "ADMIN");
+		Session user = register("Mia");
+
+		addAs(admin, user.email(), "MEMBER").andExpect(status().isCreated())
+			.andExpect(header().string("Location", "/api/members/" + user.userId()))
+			.andExpect(jsonPath("$.userId").value(user.userId().toString()))
+			.andExpect(jsonPath("$.name").value("Mia"))
+			.andExpect(jsonPath("$.email").value(user.email()))
+			.andExpect(jsonPath("$.role").value("MEMBER"));
+
+		assertThat(roleOf(user.userId(), owner.organizationId())).isEqualTo("MEMBER");
+	}
+
+	@Test
+	void adminCannotAddAboveMember() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "Adam", "ADMIN");
+		Session user = register("Mia");
+
+		addAs(admin, user.email(), "OWNER").andExpect(status().isForbidden());
+		addAs(admin, user.email(), "ADMIN").andExpect(status().isForbidden());
+
+		assertThat(membershipCount(user.userId(), owner.organizationId())).isZero();
+		assertThat(memberCount(owner.organizationId())).isEqualTo(2);
+	}
+
+	@Test
+	void memberCannotAdd() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "Mel", "MEMBER");
+		Session user = register("Mia");
+
+		for (String role : List.of("OWNER", "ADMIN", "MEMBER")) {
+			addAs(member, user.email(), role).andExpect(status().isForbidden());
+		}
+
+		assertThat(membershipCount(user.userId(), owner.organizationId())).isZero();
+		assertThat(memberCount(owner.organizationId())).isEqualTo(2);
+	}
+
+	@Test
+	void addNormalizesEmail() throws Exception {
+		Session owner = register("Olga");
+		Session user = register("Ana");
+
+		addAs(owner, "  " + user.email().toUpperCase(java.util.Locale.ROOT) + "  ", "MEMBER")
+			.andExpect(status().isCreated())
+			.andExpect(jsonPath("$.userId").value(user.userId().toString()))
+			.andExpect(jsonPath("$.email").value(user.email()));
+
+		assertThat(roleOf(user.userId(), owner.organizationId())).isEqualTo("MEMBER");
+	}
+
+	@Test
+	void addUnknownEmailReturns404() throws Exception {
+		Session owner = register("Olga");
+
+		addAs(owner, "nobody-" + UUID.randomUUID() + "@example.com", "MEMBER").andExpect(status().isNotFound());
+
+		assertThat(memberCount(owner.organizationId())).isEqualTo(1);
+	}
+
+	@Test
+	void addExistingMemberReturns409() throws Exception {
+		Session owner = register("Olga");
+		Session user = register("Ana");
+		addAs(owner, user.email(), "MEMBER").andExpect(status().isCreated());
+
+		addAs(owner, user.email(), "ADMIN").andExpect(status().isConflict());
+		addAs(owner, owner.email(), "MEMBER").andExpect(status().isConflict());
+
+		assertThat(membershipCount(user.userId(), owner.organizationId())).isEqualTo(1);
+		assertThat(roleOf(user.userId(), owner.organizationId())).isEqualTo("MEMBER");
+		assertThat(roleOf(owner.userId(), owner.organizationId())).isEqualTo("OWNER");
+		assertThat(memberCount(owner.organizationId())).isEqualTo(2);
+	}
+
+	@Test
+	void addInvalidInputReturns400() throws Exception {
+		Session owner = register("Olga");
+		Session user = register("Ana");
+		String email = user.email();
+
+		for (String json : List.of("{\"email\": \"\", \"role\": \"MEMBER\"}",
+				"{\"email\": \"   \", \"role\": \"MEMBER\"}", "{\"email\": \"not-an-email\", \"role\": \"MEMBER\"}",
+				"{\"role\": \"MEMBER\"}", "{\"email\": \"%s\"}".formatted(email),
+				"{\"email\": \"%s\", \"role\": \"SUPER\"}".formatted(email),
+				"{\"email\": \"%s\", \"role\": \"member\"}".formatted(email),
+				"{\"email\": \"%s\", \"role\": \"\"}".formatted(email))) {
+			addAs(owner, json).andExpect(status().isBadRequest());
+		}
+
+		assertThat(membershipCount(user.userId(), owner.organizationId())).isZero();
+		assertThat(memberCount(owner.organizationId())).isEqualTo(1);
+	}
+
+	@Test
+	void addInArchivedOrganizationReturns409() throws Exception {
+		Session owner = register("Olga");
+		Session user = register("Ana");
+		archive(owner.organizationId());
+
+		addAs(owner, user.email(), "MEMBER").andExpect(status().isConflict());
+
+		assertThat(membershipCount(user.userId(), owner.organizationId())).isZero();
+	}
+
+	@Test
+	void addedUserCanSwitchToOrganization() throws Exception {
+		Session owner = register("Olga");
+		Session user = register("Ana");
+		addAs(owner, user.email(), "ADMIN").andExpect(status().isCreated());
+
+		String login = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+			.content("{\"email\": \"%s\", \"password\": \"%s\"}".formatted(user.email(), PASSWORD)))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		Session loggedIn = new Session(user.name(), user.email(), "Bearer " + JsonPath.read(login, "$.accessToken"),
+				JsonPath.read(login, "$.refreshToken"), user.userId(), user.organizationId());
+		Session switched = switchTo(loggedIn, owner.organizationId());
+
+		mvc.perform(get("/api/me").header("Authorization", switched.bearer()))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.organizationId").value(owner.organizationId().toString()))
+			.andExpect(jsonPath("$.role").value("ADMIN"));
+		List<String> ids = JsonPath.read(
+				listAs(switched).andExpect(status().isOk()).andReturn().getResponse().getContentAsString(),
+				"$[*].userId");
+		assertThat(ids).containsExactlyInAnyOrder(owner.userId().toString(), user.userId().toString());
+	}
+
+	@Test
+	void concurrentAddsYieldOne201() throws Exception {
+		int threads = 5;
+		var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
+		try {
+			for (int round = 0; round < 5; round++) {
+				Session owner = register("Olga");
+				Session user = register("Ana");
+				var barrier = new java.util.concurrent.CyclicBarrier(threads);
+				var futures = new java.util.ArrayList<java.util.concurrent.Future<Integer>>();
+				for (int i = 0; i < threads; i++) {
+					futures.add(pool.submit(() -> {
+						barrier.await();
+						return addAs(owner, user.email(), "MEMBER").andReturn().getResponse().getStatus();
+					}));
+				}
+				var statuses = new java.util.ArrayList<Integer>();
+				for (var f : futures) {
+					statuses.add(f.get(30, java.util.concurrent.TimeUnit.SECONDS));
+				}
+				assertThat(statuses).containsOnly(201, 409);
+				assertThat(statuses.stream().filter(c -> c == 201).count()).isEqualTo(1);
+				assertThat(membershipCount(user.userId(), owner.organizationId())).isEqualTo(1);
+			}
+		}
+		finally {
+			pool.shutdownNow();
+		}
 	}
 
 }
