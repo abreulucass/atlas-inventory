@@ -75,6 +75,14 @@ class SwitchOrganizationIT {
 			.andExpect(status().isOk())
 			.andExpect(jsonPath("$.organizationId").value(second.toString()))
 			.andExpect(jsonPath("$.role").value("ADMIN"));
+		String refreshed = new AuthFixture(mvc, app).refresh(JsonPath.read(body, "$.refreshToken"))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		mvc.perform(get("/api/me").header("Authorization", "Bearer " + JsonPath.read(refreshed, "$.accessToken")))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.organizationId").value(second.toString()));
 	}
 
 	@Test
