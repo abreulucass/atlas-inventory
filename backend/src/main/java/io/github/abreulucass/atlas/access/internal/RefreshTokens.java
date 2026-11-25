@@ -43,4 +43,11 @@ class RefreshTokens {
 			.update();
 	}
 
+	@Transactional
+	void revoke(String token) {
+		jdbc.sql("update refresh_tokens set revoked_at = now() where token_hash = ? and revoked_at is null")
+			.param(TokenIssuer.sha256(token))
+			.update();
+	}
+
 }

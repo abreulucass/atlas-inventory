@@ -108,6 +108,10 @@ class AuthService {
 		return pair;
 	}
 
+	void logout(String token) {
+		refreshTokens.revoke(token);
+	}
+
 	static String normalizeEmail(String email) {
 		String normalized = email == null ? "" : email.strip().toLowerCase(Locale.ROOT);
 		if (normalized.length() > 254 || !EMAIL.matcher(normalized).matches()) {
