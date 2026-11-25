@@ -128,6 +128,16 @@ class MemberApiIT {
 		return changeAs(as, target.userId(), "{\"role\": \"%s\"}".formatted(role));
 	}
 
+	ResultActions removeAs(Session as, Object userId) throws Exception {
+		return mvc.perform(delete("/api/members/" + userId).header("Authorization", as.bearer()));
+	}
+
+	int liveRefreshTokens(UUID userId, UUID organizationId) {
+		return app.queryForObject(
+				"select count(*) from refresh_tokens where user_id = ? and organization_id = ? and revoked_at is null",
+				Integer.class, userId, organizationId);
+	}
+
 	int ownerCount(UUID organizationId) {
 		return app.queryForObject("select count(*) from memberships where organization_id = ? and role = 'OWNER'",
 				Integer.class, organizationId);
@@ -552,6 +562,168 @@ class MemberApiIT {
 			assertThat(statuses.stream().filter(c -> c == 200).count()).isEqualTo(1);
 			assertThat(statuses).containsAnyOf(403, 409).allMatch(c -> c == 200 || c == 403 || c == 409);
 			assertThat(ownerCount(first.organizationId())).isEqualTo(1);
+		}
+	}
+
+	@Test
+	void ownerRemovesMember() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "Adam", "ADMIN");
+		Session member = join(owner, "Mel", "MEMBER");
+		Session coOwner = join(owner, "Otto", "OWNER");
+
+		for (Session target : List.of(admin, member, coOwner)) {
+			removeAs(owner, target.userId()).andExpect(status().isNoContent());
+			assertThat(membershipCount(target.userId(), owner.organizationId())).isZero();
+		}
+
+		List<String> ids = JsonPath.read(
+				listAs(owner).andExpect(status().isOk()).andReturn().getResponse().getContentAsString(),
+				"$[*].userId");
+		assertThat(ids).containsExactly(owner.userId().toString());
+	}
+
+	@Test
+	void adminRemovesMember() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "Adam", "ADMIN");
+		Session member = join(owner, "Mel", "MEMBER");
+
+		removeAs(admin, member.userId()).andExpect(status().isNoContent());
+
+		assertThat(membershipCount(member.userId(), owner.organizationId())).isZero();
+		assertThat(memberCount(owner.organizationId())).isEqualTo(2);
+	}
+
+	@Test
+	void adminCannotRemoveAboveMember() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "Adam", "ADMIN");
+		Session otherAdmin = join(owner, "Alba", "ADMIN");
+
+		removeAs(admin, owner.userId()).andExpect(status().isForbidden());
+		removeAs(admin, otherAdmin.userId()).andExpect(status().isForbidden());
+
+		assertThat(roleOf(owner.userId(), owner.organizationId())).isEqualTo("OWNER");
+		assertThat(roleOf(otherAdmin.userId(), owner.organizationId())).isEqualTo("ADMIN");
+		assertThat(memberCount(owner.organizationId())).isEqualTo(3);
+	}
+
+	@Test
+	void memberCannotRemove() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "Mel", "MEMBER");
+		Session other = join(owner, "Max", "MEMBER");
+
+		removeAs(member, other.userId()).andExpect(status().isForbidden());
+		removeAs(member, owner.userId()).andExpect(status().isForbidden());
+
+		assertThat(roleOf(other.userId(), owner.organizationId())).isEqualTo("MEMBER");
+		assertThat(roleOf(owner.userId(), owner.organizationId())).isEqualTo("OWNER");
+		assertThat(memberCount(owner.organizationId())).isEqualTo(3);
+	}
+
+	@Test
+	void selfRemovalReturns403() throws Exception {
+		Session owner = register("Olga");
+		join(owner, "Otto", "OWNER");
+		Session admin = join(owner, "Adam", "ADMIN");
+
+		removeAs(owner, owner.userId()).andExpect(status().isForbidden());
+		removeAs(admin, admin.userId()).andExpect(status().isForbidden());
+
+		assertThat(roleOf(owner.userId(), owner.organizationId())).isEqualTo("OWNER");
+		assertThat(roleOf(admin.userId(), owner.organizationId())).isEqualTo("ADMIN");
+		assertThat(memberCount(owner.organizationId())).isEqualTo(3);
+	}
+
+	@Test
+	void removeUnknownOrOtherTenantReturns404() throws Exception {
+		Session owner = register("Olga");
+		Session stranger = register("Sara");
+
+		removeAs(owner, stranger.userId()).andExpect(status().isNotFound());
+		removeAs(owner, UUID.randomUUID()).andExpect(status().isNotFound());
+		removeAs(owner, "not-a-uuid").andExpect(status().isNotFound());
+
+		assertThat(roleOf(stranger.userId(), stranger.organizationId())).isEqualTo("OWNER");
+		assertThat(memberCount(owner.organizationId())).isEqualTo(1);
+	}
+
+	@Test
+	void removeInArchivedOrganizationReturns409() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "Mel", "MEMBER");
+		archive(owner.organizationId());
+
+		removeAs(owner, member.userId()).andExpect(status().isConflict());
+
+		assertThat(roleOf(member.userId(), owner.organizationId())).isEqualTo("MEMBER");
+	}
+
+	@Test
+	void removedMemberRefreshReturns401() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "Mel", "MEMBER");
+		assertThat(liveRefreshTokens(member.userId(), owner.organizationId())).isEqualTo(1);
+
+		removeAs(owner, member.userId()).andExpect(status().isNoContent());
+
+		assertThat(liveRefreshTokens(member.userId(), owner.organizationId())).isZero();
+		mvc.perform(post("/api/auth/refresh").contentType(MediaType.APPLICATION_JSON)
+			.content("{\"refreshToken\": \"%s\"}".formatted(member.refreshToken())))
+			.andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void removedMemberAccessTokenReturns401() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "Mel", "MEMBER");
+		mvc.perform(get("/api/companies").header("Authorization", member.bearer())).andExpect(status().isOk());
+
+		removeAs(owner, member.userId()).andExpect(status().isNoContent());
+
+		mvc.perform(get("/api/companies").header("Authorization", member.bearer()))
+			.andExpect(status().isUnauthorized());
+		listAs(member).andExpect(status().isUnauthorized());
+	}
+
+	@Test
+	void removedUserKeepsAccountAndOtherOrganizations() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "Mel", "ADMIN");
+		UUID ownOrganization = app.queryForObject(
+				"select organization_id from memberships where user_id = ? and organization_id <> ?", UUID.class,
+				member.userId(), owner.organizationId());
+
+		removeAs(owner, member.userId()).andExpect(status().isNoContent());
+
+		assertThat(roleOf(member.userId(), ownOrganization)).isEqualTo("OWNER");
+		String login = mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+			.content("{\"email\": \"%s\", \"password\": \"%s\"}".formatted(member.email(), PASSWORD)))
+			.andExpect(status().isOk())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		mvc.perform(get("/api/me").header("Authorization", "Bearer " + JsonPath.read(login, "$.accessToken")))
+			.andExpect(status().isOk())
+			.andExpect(jsonPath("$.organizationId").value(ownOrganization.toString()))
+			.andExpect(jsonPath("$.role").value("OWNER"));
+	}
+
+	@Test
+	void concurrentOwnerRemovalsLeaveOneOwner() throws Exception {
+		for (int round = 0; round < 5; round++) {
+			Session first = register("Olga");
+			Session second = join(first, "Otto", "OWNER");
+
+			List<Integer> statuses = race(
+					List.of(() -> removeAs(first, second.userId()), () -> removeAs(second, first.userId())));
+
+			assertThat(statuses.stream().filter(c -> c == 204).count()).isEqualTo(1);
+			assertThat(statuses).containsAnyOf(403, 409).allMatch(c -> c == 204 || c == 403 || c == 409);
+			assertThat(ownerCount(first.organizationId())).isEqualTo(1);
+			assertThat(memberCount(first.organizationId())).isEqualTo(1);
 		}
 	}
 

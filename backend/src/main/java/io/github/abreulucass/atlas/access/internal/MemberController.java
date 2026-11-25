@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -44,6 +45,12 @@ class MemberController {
 	@PatchMapping("/{userId}")
 	MemberView changeRole(@PathVariable UUID userId, @RequestBody ChangeRole request) {
 		return members.changeRole(userId, request.role());
+	}
+
+	@DeleteMapping("/{userId}")
+	ResponseEntity<Void> remove(@PathVariable UUID userId) {
+		members.remove(userId);
+		return ResponseEntity.noContent().build();
 	}
 
 }

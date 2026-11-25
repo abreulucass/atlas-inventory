@@ -30,11 +30,15 @@ class Members {
 
 	private final JdbcClient jdbc;
 
-	Members(MembershipRepository memberships, UserRepository users, Organizations organizations, JdbcClient jdbc) {
+	private final RefreshTokens refreshTokens;
+
+	Members(MembershipRepository memberships, UserRepository users, Organizations organizations, JdbcClient jdbc,
+			RefreshTokens refreshTokens) {
 		this.memberships = memberships;
 		this.users = users;
 		this.organizations = organizations;
 		this.jdbc = jdbc;
+		this.refreshTokens = refreshTokens;
 	}
 
 	@Transactional(readOnly = true)
@@ -85,6 +89,23 @@ class Members {
 		target.changeRole(granted);
 		User user = users.findById(userId).orElseThrow();
 		return new MemberView(userId, user.getName(), user.getEmail(), granted);
+	}
+
+	// No last-OWNER check: only an OWNER removes an OWNER and never themselves, so another OWNER always remains.
+	@Transactional
+	void remove(UUID userId) {
+		UUID organizationId = TenantContext.require();
+		Role callerRole = lockAndRequireManager(organizationId);
+		organizations.requireWritable(organizationId);
+		Membership target = memberships.findByUserIdAndOrganizationId(userId, organizationId)
+			.orElseThrow(MemberNotFoundException::new);
+		if (userId.equals(CurrentUser.id()) || (callerRole == Role.ADMIN && target.getRole() != Role.MEMBER)) {
+			throw new NotAllowedException();
+		}
+		memberships.delete(target);
+		// the delete must reach the database before the revoke, so a token issue holding the row lock is seen
+		memberships.flush();
+		refreshTokens.revokeAll(userId, organizationId);
 	}
 
 	/** Takes the transaction-scoped member lock of the organization, then returns the caller's role. */

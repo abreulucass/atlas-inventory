@@ -68,6 +68,13 @@ class RefreshTokens {
 		return family.isPresent();
 	}
 
+	/** Revokes every live token of the user for the organization; runs in the caller's transaction. */
+	void revokeAll(UUID userId, UUID organizationId) {
+		jdbc.sql("update refresh_tokens set revoked_at = now() where user_id = ? and organization_id = ? and revoked_at is null")
+			.params(userId, organizationId)
+			.update();
+	}
+
 	@Transactional
 	void revoke(String token) {
 		jdbc.sql("update refresh_tokens set revoked_at = now() where token_hash = ? and revoked_at is null")
