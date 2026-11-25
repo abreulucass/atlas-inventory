@@ -6,6 +6,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -14,14 +17,17 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.context.annotation.Import;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.oauth2.jwt.JwtDecoder;
+import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 
 import com.jayway.jsonpath.JsonPath;
@@ -42,6 +48,15 @@ class RefreshIT {
 
 	@Autowired
 	JwtDecoder decoder;
+
+	@Value("${spring.datasource.url}")
+	String url;
+
+	@Value("${spring.flyway.user}")
+	String ownerUser;
+
+	@Value("${spring.flyway.password}")
+	String ownerPassword;
 
 	AuthFixture fixture() {
 		return new AuthFixture(mvc, app);
@@ -151,35 +166,67 @@ class RefreshIT {
 
 	@Test
 	void reuseRaceLeavesNoLiveDescendant() throws Exception {
-		AuthFixture f = fixture();
-		try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
-			for (int round = 0; round < 25; round++) {
-				Session ana = f.register();
-				String descendant = JsonPath.read(f.refresh(ana.refreshToken())
-					.andExpect(status().isOk())
-					.andReturn()
-					.getResponse()
-					.getContentAsString(), "$.refreshToken");
-				CountDownLatch start = new CountDownLatch(1);
-				Future<Integer> reuse = pool.submit(() -> {
-					start.await();
-					return f.refresh(ana.refreshToken()).andReturn().getResponse().getStatus();
-				});
-				Future<String> rotation = pool.submit(() -> {
-					start.await();
-					var res = f.refresh(descendant).andReturn().getResponse();
-					return res.getStatus() == 200 ? JsonPath.read(res.getContentAsString(), "$.refreshToken") : null;
-				});
-				start.countDown();
+		for (boolean rotateFirst : new boolean[] { true, false }) {
+			AuthFixture f = fixture();
+			Session ana = f.register();
+			String a = ana.refreshToken();
+			String b = JsonPath.read(
+					f.refresh(a).andExpect(status().isOk()).andReturn().getResponse().getContentAsString(),
+					"$.refreshToken");
+			UUID family = app.queryForObject("select family_id from refresh_tokens where user_id = ? limit 1",
+					UUID.class, ana.userId());
+			Callable<MockHttpServletResponse> rotate = () -> f.refresh(b).andReturn().getResponse();
+			Callable<MockHttpServletResponse> reuse = () -> f.refresh(a).andReturn().getResponse();
 
-				assertThat(reuse.get()).isEqualTo(401);
-				String grandchild = rotation.get();
-				assertThat(liveTokens(ana.userId())).as("round %d", round).isZero();
-				if (grandchild != null) {
-					f.refresh(grandchild).andExpect(status().isUnauthorized());
+			MockHttpServletResponse rotateResult;
+			MockHttpServletResponse reuseResult;
+			try (Connection held = DriverManager.getConnection(url, ownerUser, ownerPassword);
+					ExecutorService pool = Executors.newFixedThreadPool(2)) {
+				// the test holds the family lock, so both requests queue behind it in a known order
+				held.setAutoCommit(false);
+				try (PreparedStatement lock = held.prepareStatement("select pg_advisory_xact_lock(hashtextextended(?, 0))")) {
+					lock.setString(1, family.toString());
+					lock.execute();
 				}
+				Future<MockHttpServletResponse> first = pool.submit(rotateFirst ? rotate : reuse);
+				awaitLockWaiters(1);
+				Future<MockHttpServletResponse> second = pool.submit(rotateFirst ? reuse : rotate);
+				awaitLockWaiters(2);
+				held.rollback();
+				rotateResult = (rotateFirst ? first : second).get(30, TimeUnit.SECONDS);
+				reuseResult = (rotateFirst ? second : first).get(30, TimeUnit.SECONDS);
+			}
+
+			assertThat(reuseResult.getStatus()).as("reuse of A, rotateFirst=%s", rotateFirst).isEqualTo(401);
+			List<String> tokens = new ArrayList<>(List.of(a, b));
+			if (rotateResult.getStatus() == 200) {
+				tokens.add(JsonPath.read(rotateResult.getContentAsString(), "$.refreshToken"));
+			}
+			if (rotateFirst) {
+				assertThat(rotateResult.getStatus()).as("rotation of B queued first").isEqualTo(200);
+			}
+			// reuse first: its rotate attempt and its revocation take the lock separately, so B may still rotate
+			// in between (200) or not (401); either way the chain must end dead
+			assertThat(liveTokens(ana.userId())).as("live tokens, rotateFirst=%s", rotateFirst).isZero();
+			for (String token : tokens) {
+				f.refresh(token).andExpect(status().isUnauthorized());
 			}
 		}
+	}
+
+	// A waiter that never shows up means the operation does not take the per-family lock.
+	void awaitLockWaiters(int expected) throws Exception {
+		long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+		int waiting = 0;
+		while (System.nanoTime() < deadline) {
+			waiting = app.queryForObject("select count(*) from pg_locks where locktype = 'advisory' and not granted",
+					Integer.class);
+			if (waiting == expected) {
+				return;
+			}
+			Thread.sleep(20);
+		}
+		throw new AssertionError("expected %d requests waiting for the family lock, found %d".formatted(expected, waiting));
 	}
 
 	@Test
