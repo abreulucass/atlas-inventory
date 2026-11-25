@@ -46,6 +46,7 @@ ADR-002 places warehouses inside companies, and stock will live in warehouses, b
 | Response body | `{id, companyId, name, code, status}`, `status` `ACTIVE`/`ARCHIVED` | Mirrors `CompanyView` | n |
 | `201` response | Body of the created warehouse and `Location: /api/companies/{companyId}/warehouses/{id}` | Same as feature 14 | n |
 | Errors | RFC 9457 `ProblemDetail` | Same as features 12 and 14 | n |
+| Create precedence when several rules fail | `401` → `403` role → `409` archived organization → `404` company → `400` input → `409` archived company / duplicate | The path resource is resolved before the body is judged, so Create AC 11 holds with any payload (Verifier F1) | n |
 | Module | New `warehouse` module, reaching companies only through `company`'s public API | ADR-001; AD-002 created one module per aggregate | n |
 
 **Open questions:** none - all resolved or logged above.
