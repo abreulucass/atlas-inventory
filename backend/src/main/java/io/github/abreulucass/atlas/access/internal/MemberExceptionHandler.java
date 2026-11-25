@@ -4,7 +4,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import io.github.abreulucass.atlas.access.NotAllowedException;
@@ -32,11 +31,6 @@ class MemberExceptionHandler extends ResponseEntityExceptionHandler {
 	@ExceptionHandler({ AlreadyMemberException.class, LastOwnerException.class, OrganizationArchivedException.class })
 	ProblemDetail conflict(RuntimeException e) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
-	}
-
-	@ExceptionHandler(MethodArgumentTypeMismatchException.class)
-	ProblemDetail malformedId(MethodArgumentTypeMismatchException e) {
-		return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, "Member not found");
 	}
 
 }

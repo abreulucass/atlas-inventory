@@ -2,7 +2,6 @@ package io.github.abreulucass.atlas.access.internal;
 
 import java.net.URI;
 import java.util.List;
-import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -43,12 +42,12 @@ class MemberController {
 	}
 
 	@PatchMapping("/{userId}")
-	MemberView changeRole(@PathVariable UUID userId, @RequestBody ChangeRole request) {
+	MemberView changeRole(@PathVariable String userId, @RequestBody ChangeRole request) {
 		return members.changeRole(userId, request.role());
 	}
 
 	@DeleteMapping("/{userId}")
-	ResponseEntity<Void> remove(@PathVariable UUID userId) {
+	ResponseEntity<Void> remove(@PathVariable String userId) {
 		members.remove(userId);
 		return ResponseEntity.noContent().build();
 	}

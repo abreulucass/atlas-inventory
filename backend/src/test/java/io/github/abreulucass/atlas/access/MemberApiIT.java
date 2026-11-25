@@ -750,6 +750,21 @@ class MemberApiIT {
 	}
 
 	@Test
+	void malformedIdFollowsPrecedence() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "Mel", "MEMBER");
+
+		changeAs(member, "bad-id", "{\"role\": \"MEMBER\"}").andExpect(status().isForbidden());
+		removeAs(member, "bad-id").andExpect(status().isForbidden());
+
+		archive(owner.organizationId());
+		removeAs(owner, "bad-id").andExpect(status().isConflict());
+		changeAs(owner, "bad-id", "{\"role\": \"MEMBER\"}").andExpect(status().isConflict());
+
+		assertThat(memberCount(owner.organizationId())).isEqualTo(2);
+	}
+
+	@Test
 	void concurrentAddsYieldOne201() throws Exception {
 		int threads = 5;
 		var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);

@@ -72,10 +72,11 @@ class Members {
 	}
 
 	@Transactional
-	MemberView changeRole(UUID userId, String role) {
+	MemberView changeRole(String id, String role) {
 		UUID organizationId = TenantContext.require();
 		Role callerRole = lockAndRequireManager(organizationId);
 		organizations.requireWritable(organizationId);
+		UUID userId = parseUserId(id);
 		Membership target = memberships.findByUserIdAndOrganizationId(userId, organizationId)
 			.orElseThrow(MemberNotFoundException::new);
 		Role granted = parseRole(role);
@@ -93,10 +94,11 @@ class Members {
 
 	// No last-OWNER check: only an OWNER removes an OWNER and never themselves, so another OWNER always remains.
 	@Transactional
-	void remove(UUID userId) {
+	void remove(String id) {
 		UUID organizationId = TenantContext.require();
 		Role callerRole = lockAndRequireManager(organizationId);
 		organizations.requireWritable(organizationId);
+		UUID userId = parseUserId(id);
 		Membership target = memberships.findByUserIdAndOrganizationId(userId, organizationId)
 			.orElseThrow(MemberNotFoundException::new);
 		if (userId.equals(CurrentUser.id()) || (callerRole == Role.ADMIN && target.getRole() != Role.MEMBER)) {
@@ -123,6 +125,16 @@ class Members {
 			throw new NotAllowedException();
 		}
 		return callerRole;
+	}
+
+	// parsed after the caller and archived checks, so a malformed id follows the spec's precedence
+	private static UUID parseUserId(String id) {
+		try {
+			return UUID.fromString(id);
+		}
+		catch (IllegalArgumentException e) {
+			throw new MemberNotFoundException();
+		}
 	}
 
 	private static Role parseRole(String role) {
