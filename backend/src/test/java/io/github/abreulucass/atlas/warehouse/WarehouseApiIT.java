@@ -282,10 +282,24 @@ class WarehouseApiIT {
 
 	@Test
 	void unauthenticatedReturns401() throws Exception {
-		UUID id = UUID.randomUUID();
+		Session owner = register();
+		UUID company = seedCompany(owner, "Acme");
+		UUID active = seed(owner, company, "Active", "ACT");
+		UUID archived = seedArchived(owner, company, "Gone", "GONE");
+		String body = "{\"name\": \"New\", \"code\": \"NEW\"}";
 
-		mvc.perform(get(base(id))).andExpect(status().isUnauthorized());
-		mvc.perform(get(base(id) + "/" + id)).andExpect(status().isUnauthorized());
+		for (String auth : new String[] { null, "Bearer not-a-jwt" }) {
+			for (var request : java.util.List.of(get(base(company)), get(base(company) + "/" + active),
+					post(base(company)).contentType(MediaType.APPLICATION_JSON).content(body),
+					post(base(company) + "/" + active + "/archive"),
+					post(base(company) + "/" + archived + "/unarchive"))) {
+				mvc.perform(auth == null ? request : request.header("Authorization", auth))
+					.andExpect(status().isUnauthorized());
+			}
+		}
+		assertThat(countWarehouses(owner)).isEqualTo(2);
+		assertThat(statusOf(owner, company, active)).isEqualTo("ACTIVE");
+		assertThat(statusOf(owner, company, archived)).isEqualTo("ARCHIVED");
 	}
 
 	@Test
