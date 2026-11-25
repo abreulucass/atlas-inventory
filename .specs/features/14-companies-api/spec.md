@@ -34,7 +34,7 @@ Companies exist in the domain (`company.Companies`) and requests now run in the 
 | Role source | Read from the membership in the database per request (not from the token) | A demoted member loses write access at once, not after 15 min | n |
 | Write in an archived organization | `409` | The request is valid; the resource state forbids it | n |
 | Archive an archived company / unarchive an active one | `204`, no change (idempotent) | Matches the current domain methods | n |
-| Response body | `{id, name, cnpj, status}`, `cnpj` as 14 digits or `null`, `status` `ACTIVE`/`ARCHIVED` | Mirrors `CompanyView` | n |
+| Response body | `{id, name, cnpj, status}`, `cnpj` as the 14 stored characters (numeric or alphanumeric, upper case, no mask, per feature 10) or `null`, `status` `ACTIVE`/`ARCHIVED` | Mirrors `CompanyView`; corrected from "14 digits" after Verifier F8 - the domain already accepts alphanumeric CNPJ | n |
 | `201` response | Body of the created company and `Location: /api/companies/{id}` | REST convention | n |
 | Malformed id in path | `404` | Same answer as an unknown id | n |
 | Errors | RFC 9457 `ProblemDetail` | Same as auth (feature 12) | n |
