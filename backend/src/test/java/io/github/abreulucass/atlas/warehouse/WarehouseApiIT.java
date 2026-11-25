@@ -653,12 +653,18 @@ class WarehouseApiIT {
 		Session owner = register();
 		UUID company = seedCompany(owner, "Acme");
 		UUID id = seed(owner, company, "Main", "A");
+		UUID gone = seedArchived(owner, company, "Gone", "G");
 
 		postAs(owner, "/api/companies/" + company + "/archive", null).andExpect(status().isNoContent());
 
 		getAs(owner, "/api/companies/" + company).andExpect(jsonPath("$.status").value("ARCHIVED"));
 		assertThat(statusOf(owner, company, id)).isEqualTo("ACTIVE");
-		getAs(owner, base(company)).andExpect(jsonPath("$.length()").value(1));
+		assertThat(statusOf(owner, company, gone)).isEqualTo("ARCHIVED");
+		getAs(owner, base(company)).andExpect(jsonPath("$.length()").value(1))
+			.andExpect(jsonPath("$[0].id").value(id.toString()));
+		getAs(owner, base(company) + "?includeArchived=true").andExpect(jsonPath("$.length()").value(2))
+			.andExpect(jsonPath("$[0].id").value(gone.toString()))
+			.andExpect(jsonPath("$[1].id").value(id.toString()));
 	}
 
 }
