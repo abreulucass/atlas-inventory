@@ -917,6 +917,64 @@ class MemberApiIT {
 	}
 
 	@Test
+	void loginRacingRemovalLeavesNoLiveToken() throws Exception {
+		var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+		try {
+			// login first: the removal waits for the member lock while the login issues and commits its tokens
+			Session owner = register("Olga");
+			Session member = join(owner, "Mel", "MEMBER");
+			openRemovedOrganizationOnLogin(member, owner.organizationId());
+			try (var memberLock = ownerTransaction()) {
+				query(memberLock, "select 1 from (select pg_advisory_xact_lock(hashtextextended(?, 0))) l",
+						"members:" + owner.organizationId());
+				var login = pool.submit(() -> login(member).andReturn().getResponse());
+				assertThat(login.get(30, java.util.concurrent.TimeUnit.SECONDS).getStatus()).isEqualTo(200);
+				assertThat(liveRefreshTokens(member.userId(), owner.organizationId())).isEqualTo(2);
+				var removal = pool.submit(() -> removeAs(owner, member.userId()).andReturn().getResponse());
+				awaitLockWaiters(1);
+				memberLock.commit();
+				assertThat(removal.get(30, java.util.concurrent.TimeUnit.SECONDS).getStatus()).isEqualTo(204);
+			}
+			assertThat(membershipCount(member.userId(), owner.organizationId())).isZero();
+			assertThat(liveRefreshTokens(member.userId(), owner.organizationId())).isZero();
+
+			// removal first: the login reads the membership, then its issue waits for the uncommitted delete
+			Session removing = register("Olga");
+			Session removed = join(removing, "Mel", "MEMBER");
+			openRemovedOrganizationOnLogin(removed, removing.organizationId());
+			try (var tokenLock = ownerTransaction()) {
+				query(tokenLock, "select 1 from refresh_tokens where token_hash = sha256(convert_to(?, 'UTF8')) for update",
+						removed.refreshToken());
+				long tokenLockXid = query(tokenLock, "select txid_current()");
+				var removal = pool.submit(() -> removeAs(removing, removed.userId()).andReturn().getResponse());
+				awaitWaitingOn(tokenLockXid);
+				var login = pool.submit(() -> login(removed).andReturn().getResponse());
+				awaitLockWaiters(2);
+				tokenLock.commit();
+				assertThat(removal.get(30, java.util.concurrent.TimeUnit.SECONDS).getStatus()).isEqualTo(204);
+				assertThat(login.get(30, java.util.concurrent.TimeUnit.SECONDS).getStatus()).isEqualTo(403);
+			}
+			assertThat(membershipCount(removed.userId(), removing.organizationId())).isZero();
+			assertThat(liveRefreshTokens(removed.userId(), removing.organizationId())).isZero();
+		}
+		finally {
+			pool.shutdownNow();
+		}
+	}
+
+	/** Login opens the earliest membership: makes it the one about to be removed. */
+	void openRemovedOrganizationOnLogin(Session member, UUID organizationId) {
+		owner().update(
+				"update memberships set created_at = now() - interval '1 day' where user_id = ? and organization_id = ?",
+				member.userId(), organizationId);
+	}
+
+	ResultActions login(Session user) throws Exception {
+		return mvc.perform(post("/api/auth/login").contentType(MediaType.APPLICATION_JSON)
+			.content("{\"email\": \"%s\", \"password\": \"%s\"}".formatted(user.email(), PASSWORD)));
+	}
+
+	@Test
 	void concurrentAddsYieldOne201() throws Exception {
 		int threads = 5;
 		var pool = java.util.concurrent.Executors.newFixedThreadPool(threads);
