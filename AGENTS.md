@@ -13,7 +13,7 @@
 Backend, em `backend/` (JDK 25 e Docker):
 
 - `docker compose up -d --wait` — PostgreSQL 18 local com os papéis `atlas_owner` (dono, Flyway) e `atlas_app` (aplicação).
-- `./mvnw spring-boot:run` — sobe a aplicação contra o Compose.
+- `./mvnw spring-boot:run` — sobe a aplicação contra o Compose; exige `ATLAS_JWT_SECRET` (≥ 32 bytes; em dev, um valor fictício).
 - `./mvnw test` — testes unitários e de fronteira (`ModularityTest`), sem Docker.
 - `./mvnw verify` — tudo, incluindo os `*IT` com Testcontainers; é o que o CI roda.
 - Migrações em `src/main/resources/db/migration/`, rodam como `atlas_owner`; a aplicação conecta como `atlas_app`.
@@ -21,6 +21,7 @@ Backend, em `backend/` (JDK 25 e Docker):
 ## Regras de arquitetura
 
 - Monólito modular ([ADR-001](docs/adr/ADR-001-monolito-modular.md)): módulos só se acessam pela API pública uns dos outros ou por eventos; fronteiras verificadas com Spring Modulith em teste.
+- Auth (módulo `access`): JWT HS256 + refresh rotativo; endpoints públicos `/api/auth/register|login|refresh|logout`, o resto exige `Bearer`. O tenant vem do claim `org`, nunca de header/param/body.
 - Multi-tenant ([ADR-002](docs/adr/ADR-002-multi-tenancy.md)): toda tabela de uma organização tem `tenant_id` com RLS forçada; o tenant vem só do contexto autenticado, nunca da requisição.
 
 ## Convenções

@@ -13,3 +13,7 @@ spring:
   jpa:
     # The tenant must be bound before the session opens; a view-wide EntityManager would open it earlier.
     open-in-view: false
+# HMAC-SHA256 key of the access tokens, at least 32 bytes; no default: the application refuses to start without it.
+atlas:
+  security:
+    jwt-secret: ${ATLAS_JWT_SECRET}

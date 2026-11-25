@@ -44,9 +44,19 @@ Requisitos: JDK 25 e Docker.
 ```bash
 cd backend
 docker compose up -d --wait   # PostgreSQL 18 com os papéis atlas_owner e atlas_app
+export ATLAS_JWT_SECRET=dev-only-secret-dev-only-secret-0123   # fictício, só para desenvolvimento; mínimo de 32 bytes
 ./mvnw spring-boot:run        # http://localhost:8080/actuator/health
 ./mvnw verify                 # testes; os de integração sobem o próprio Postgres (Testcontainers)
 ```
+
+### Autenticação
+
+A API usa JWT (access de 15 min) e refresh token opaco rotativo (30 dias). `ATLAS_JWT_SECRET` é obrigatório: sem ele a aplicação não sobe.
+
+| Endpoint | Acesso |
+| -------- | ------ |
+| `POST /api/auth/register`, `/login`, `/refresh`, `/logout` | público |
+| `POST /api/auth/switch-organization`, `GET /api/me` | com `Authorization: Bearer <access token>` |
 
 ## Documentação
 
