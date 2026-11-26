@@ -8,6 +8,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.github.abreulucass.atlas.stock.BalancePage;
 import io.github.abreulucass.atlas.stock.Balances;
+import io.github.abreulucass.atlas.stock.ProductStock;
 
 @RestController
 class BalanceController {
@@ -16,6 +17,11 @@ class BalanceController {
 
 	BalanceController(Balances balances) {
 		this.balances = balances;
+	}
+
+	@GetMapping("/api/products/{id}/stock")
+	ProductStock ofProduct(@PathVariable String id) {
+		return balances.ofProduct(id);
 	}
 
 	@GetMapping("/api/companies/{companyId}/warehouses/{warehouseId}/stock")

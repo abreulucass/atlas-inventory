@@ -1,5 +1,7 @@
 package io.github.abreulucass.atlas.stock;
 
+import java.math.BigDecimal;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -10,6 +12,7 @@ import org.jspecify.annotations.Nullable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import io.github.abreulucass.atlas.access.Permissions;
 import io.github.abreulucass.atlas.access.TenantContext;
 import io.github.abreulucass.atlas.catalog.ProductView;
 import io.github.abreulucass.atlas.catalog.Products;
@@ -32,7 +35,11 @@ public class Balances {
 
 	private final Products products;
 
-	Balances(BalanceRepository balances, Companies companies, Warehouses warehouses, Products products) {
+	private final Permissions permissions;
+
+	Balances(BalanceRepository balances, Companies companies, Warehouses warehouses, Products products,
+			Permissions permissions) {
+		this.permissions = permissions;
 		this.balances = balances;
 		this.companies = companies;
 		this.warehouses = warehouses;
@@ -59,6 +66,27 @@ public class Balances {
 					r.updatedAt()))
 			.toList();
 		return new BalancePage(items, paging.page(), paging.size(), totalItems, paging.totalPages(totalItems));
+	}
+
+	/** Over the warehouses the caller sees; {@code total} never counts the others. */
+	@Transactional(readOnly = true)
+	public ProductStock ofProduct(String productId) {
+		UUID tenant = TenantContext.require();
+		UUID product = products.find(productId).id();
+		var visibility = permissions.visibility();
+		// shortcut: one warehouse lookup per row, fine for a product in a few warehouses; batch by company if not
+		var visible = balances.ofProduct(tenant, product)
+			.stream()
+			.filter(r -> visibility.seesWarehouse(r.companyId(), r.warehouseId()))
+			.map(r -> Map.entry(warehouses.find(r.companyId(), r.warehouseId()).code(),
+					new ProductStock.WarehouseStock(r.companyId(), r.warehouseId(), r.quantity())))
+			.sorted(Comparator
+				.comparing((Map.Entry<String, ProductStock.WarehouseStock> e) -> e.getValue().companyId().toString())
+				.thenComparing(Map.Entry::getKey))
+			.map(Map.Entry::getValue)
+			.toList();
+		return new ProductStock(product, visible.stream().map(ProductStock.WarehouseStock::quantity).reduce(BigDecimal.ZERO, BigDecimal::add),
+				visible);
 	}
 
 	private static UUID id(String text, String what) {

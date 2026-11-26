@@ -22,6 +22,18 @@ public class BalanceRepository {
 	public record Row(UUID productId, String sku, String unit, BigDecimal quantity, java.time.Instant updatedAt) {
 	}
 
+	public record Stock(UUID companyId, UUID warehouseId, BigDecimal quantity) {
+	}
+
+	public List<Stock> ofProduct(UUID tenant, UUID productId) {
+		return jdbc.sql("select company_id, warehouse_id, quantity from stock_balances where tenant_id = :t and product_id = :p")
+			.param("t", tenant)
+			.param("p", productId)
+			.query((rs, i) -> new Stock(rs.getObject("company_id", UUID.class), rs.getObject("warehouse_id", UUID.class),
+					rs.getBigDecimal("quantity")))
+			.list();
+	}
+
 	public long count(UUID tenant, UUID warehouseId) {
 		return jdbc.sql("select count(*) from stock_balances where tenant_id = :t and warehouse_id = :w")
 			.param("t", tenant)
