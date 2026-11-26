@@ -125,6 +125,37 @@ class ApiDocsIT {
 	}
 
 	@Test
+	void rawBodiesHaveObjectSchemas() throws Exception {
+		DocumentContext doc = docs();
+		assertBody(doc, "/api/products", "post", List.of("sku", "name", "unit", "categoryId"),
+				List.of("sku", "name", "unit"));
+		assertBody(doc, "/api/products/{id}", "patch", List.of("version", "name", "categoryId"), List.of("version"));
+		assertBody(doc, "/api/categories", "post", List.of("name"), List.of("name"));
+		assertBody(doc, "/api/members/{userId}/access", "post", List.of("companyId", "warehouseId"), List.of());
+		assertBody(doc, "/api/companies/{companyId}/warehouses/{warehouseId}/movements", "post",
+				List.of("type", "productId", "quantity", "note"), List.of("type", "productId", "quantity"));
+		assertBody(doc, "/api/transfers", "post", List.of("fromWarehouseId", "toWarehouseId", "note", "items"),
+				List.of("fromWarehouseId", "toWarehouseId", "items"));
+		assertThat(doc.read("$.paths['/api/transfers'].post.requestBody.content['application/json'].schema.$ref",
+				String.class)).isEqualTo("#/components/schemas/TransferBody");
+		assertThat(doc.read("$.components.schemas.TransferBody.properties.items.items.$ref", String.class))
+			.isEqualTo("#/components/schemas/TransferItemBody");
+		assertThat(doc.read("$.components.schemas.TransferItemBody.required", List.class))
+			.containsExactlyInAnyOrder("productId", "quantity");
+	}
+
+	private static void assertBody(DocumentContext doc, String path, String method, List<String> properties,
+			List<String> required) {
+		String ref = doc.read("$.paths['" + path + "']." + method + ".requestBody.content['application/json'].schema.$ref",
+				String.class);
+		String schema = ref.substring(ref.lastIndexOf('/') + 1);
+		java.util.Map<String, Object> props = doc.read("$.components.schemas." + schema + ".properties");
+		assertThat(props.keySet()).as(path).containsExactlyInAnyOrderElementsOf(properties);
+		List<String> req = doc.read("$.components.schemas." + schema + ".required");
+		assertThat(req == null ? List.of() : req).as(path).containsExactlyInAnyOrderElementsOf(required);
+	}
+
+	@Test
 	void apiDocsAnswerWithBearerToken() throws Exception {
 		String id = UUID.randomUUID().toString().substring(0, 8);
 		String body = mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content("""

@@ -19,6 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 import io.github.abreulucass.atlas.catalog.ProductPage;
 import io.github.abreulucass.atlas.catalog.ProductView;
 import io.github.abreulucass.atlas.catalog.Products;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 @RestController
 @RequestMapping("/api/products")
@@ -43,6 +45,7 @@ class ProductController {
 		return products.find(id);
 	}
 
+	@io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductUpdateBody.class)))
 	@PatchMapping("/{id}")
 	ProductView update(@PathVariable String id, @RequestBody(required = false) @Nullable String body) {
 		return products.update(id, body);
@@ -60,6 +63,7 @@ class ProductController {
 		products.unarchive(id);
 	}
 
+	@io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(mediaType = "application/json", schema = @Schema(implementation = ProductCreateBody.class)))
 	@PostMapping
 	ResponseEntity<ProductView> create(@RequestBody(required = false) @Nullable String body) {
 		UUID id = products.create(body);
