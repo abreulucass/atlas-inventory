@@ -123,7 +123,7 @@ class MemberAccessApiIT extends AccessITSupport {
 
 	/** C32: 403, then 409, then 404 member, all before any 400 for the body. */
 	@Test
-	void malformedBodyYieldsToEarlierJudgements() throws Exception {
+	void grantPrecedenceBeatsBodyErrors() throws Exception {
 		Session owner = register("Olga");
 		Session member = join(owner, "MEMBER");
 		Session other = join(owner, "MEMBER");
@@ -178,7 +178,7 @@ class MemberAccessApiIT extends AccessITSupport {
 
 	/** C34: a MEMBER's own id is compared by value, whatever its letter case. */
 	@Test
-	void memberReadsOwnGrantsWithUpperCaseId() throws Exception {
+	void selfReadIgnoresUuidCase() throws Exception {
 		Session owner = register("Olga");
 		Session member = join(owner, "MEMBER");
 		Session other = join(owner, "MEMBER");

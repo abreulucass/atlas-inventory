@@ -196,6 +196,11 @@ class MemberAccessSchemaIT {
 
 	/** C36: with every foreign key satisfied for the other tenant, only RLS can stop the write. */
 	@Test
+	void grantWritesAreTenantIsolatedAndMembershipBound() throws Exception {
+		rlsBlocksCrossTenantInsertAndUpdate();
+		membershipForeignKeyRejectsGrantWithoutMembership();
+	}
+
 	void rlsBlocksCrossTenantInsertAndUpdate() throws Exception {
 		UUID foreignGrant = seedGrant(orgB, userB, companyB, null);
 		UUID ownGrant = seedGrant(orgA, userA, companyA, null);
@@ -221,12 +226,13 @@ class MemberAccessSchemaIT {
 	}
 
 	/** C36: in the right tenant, with a valid company, only the membership foreign key can stop the grant. */
-	@Test
+	// the membership guard, isolated: right tenant, valid company
 	void membershipForeignKeyRejectsGrantWithoutMembership() throws Exception {
 		UUID withoutAnyMembership = UUID.randomUUID();
 		asOwnerIn(orgA, "insert into users (id, name, email, password_hash, created_at) values (?, 'U', ?, 'x', now())",
 				withoutAnyMembership, withoutAnyMembership + "@example.com");
 
+		List<UUID> before = grantIds(orgA);
 		// userB is a member of orgB only
 		assertThatThrownBy(() -> grantAs(orgA, userB, companyA, null)).isInstanceOf(DataAccessException.class)
 			.rootCause()
@@ -235,7 +241,7 @@ class MemberAccessSchemaIT {
 			.isInstanceOf(DataAccessException.class)
 			.rootCause()
 			.hasMessageContaining("member_access_membership_fk");
-		assertThat(grantIds(orgA)).isEmpty();
+		assertThat(grantIds(orgA)).isEqualTo(before);
 	}
 
 }

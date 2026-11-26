@@ -583,16 +583,4 @@ class CompaniesIT {
 		assertThatThrownBy(() -> as(org, () -> companies.find(UUID.randomUUID())))
 			.isInstanceOf(CompanyNotFoundException.class);
 	}
-
-	/** C31: reads fail closed without an authenticated user. */
-	@Test
-	void readsWithoutAuthenticatedUserThrow() throws Exception {
-		UUID org = organization();
-		UUID id = as(org, () -> companies.create("Acme", null));
-
-		assertThatThrownBy(() -> io.github.abreulucass.atlas.access.TenantContext.callAs(org, () -> companies.list(true)))
-			.isInstanceOf(IllegalStateException.class);
-		assertThatThrownBy(() -> io.github.abreulucass.atlas.access.TenantContext.callAs(org, () -> companies.find(id)))
-			.isInstanceOf(IllegalStateException.class);
-	}
 }

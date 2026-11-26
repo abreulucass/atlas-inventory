@@ -328,19 +328,4 @@ class WarehousesIT {
 		assertThatThrownBy(() -> warehouses.archive(company, id)).isInstanceOf(MissingTenantContextException.class);
 		assertThatThrownBy(() -> warehouses.unarchive(company, id)).isInstanceOf(MissingTenantContextException.class);
 	}
-
-	/** C31: reads fail closed without an authenticated user. */
-	@Test
-	void readsWithoutAuthenticatedUserThrow() throws Exception {
-		UUID org = organization();
-		UUID company = company(org, "Acme");
-		UUID id = as(org, () -> warehouses.create(company, "Main", "A"));
-
-		assertThatThrownBy(() -> io.github.abreulucass.atlas.access.TenantContext.callAs(org,
-				() -> warehouses.list(company, true)))
-			.isInstanceOf(IllegalStateException.class);
-		assertThatThrownBy(() -> io.github.abreulucass.atlas.access.TenantContext.callAs(org,
-				() -> warehouses.find(company, id)))
-			.isInstanceOf(IllegalStateException.class);
-	}
 }

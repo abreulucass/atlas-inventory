@@ -1,12 +1,17 @@
 package io.github.abreulucass.atlas.access;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+
+import io.github.abreulucass.atlas.company.Companies;
+import io.github.abreulucass.atlas.warehouse.Warehouses;
 
 class MemberVisibilityIT extends AccessITSupport {
 
@@ -269,6 +274,30 @@ class MemberVisibilityIT extends AccessITSupport {
 			.containsExactly(archivedGranted.toString());
 		getAs(member, warehouses(other) + "/" + archivedGranted).andExpect(status().isOk())
 			.andExpect(jsonPath("$.status").value("ARCHIVED"));
+	}
+
+	@Autowired
+	Companies companies;
+
+	@Autowired
+	Warehouses warehouses;
+
+	/** C31: in-process reads with a tenant but no authenticated user throw instead of returning data. */
+	@Test
+	void serviceReadsWithoutUserFailClosed() throws Exception {
+		Session owner = register("Olga");
+		UUID companyId = company(owner);
+		UUID warehouseId = warehouse(owner, companyId);
+		UUID tenant = owner.organizationId();
+
+		assertThatThrownBy(() -> TenantContext.callAs(tenant, () -> companies.list(true)))
+			.isInstanceOf(IllegalStateException.class);
+		assertThatThrownBy(() -> TenantContext.callAs(tenant, () -> companies.find(companyId)))
+			.isInstanceOf(IllegalStateException.class);
+		assertThatThrownBy(() -> TenantContext.callAs(tenant, () -> warehouses.list(companyId, true)))
+			.isInstanceOf(IllegalStateException.class);
+		assertThatThrownBy(() -> TenantContext.callAs(tenant, () -> warehouses.find(companyId, warehouseId)))
+			.isInstanceOf(IllegalStateException.class);
 	}
 
 }
