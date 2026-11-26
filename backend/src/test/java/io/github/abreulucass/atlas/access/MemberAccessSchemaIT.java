@@ -190,4 +190,52 @@ class MemberAccessSchemaIT {
 			.hasMessageContaining("member_access_warehouse_key");
 	}
 
+	List<UUID> grantIds(UUID tenant) {
+		return asOwnerIn(tenant, owner -> owner.queryForList("select id from member_access", UUID.class));
+	}
+
+	/** C36: with every foreign key satisfied for the other tenant, only RLS can stop the write. */
+	@Test
+	void rlsBlocksCrossTenantInsertAndUpdate() throws Exception {
+		UUID foreignGrant = seedGrant(orgB, userB, companyB, null);
+		UUID ownGrant = seedGrant(orgA, userA, companyA, null);
+
+		assertThatThrownBy(() -> inTenant(orgA,
+				() -> app.update(INSERT, UUID.randomUUID(), orgB, userB, companyB, null)))
+			.isInstanceOf(DataAccessException.class)
+			.rootCause()
+			.hasMessageContaining("row-level security");
+		assertThatThrownBy(() -> inTenant(orgA,
+				() -> app.update("update member_access set tenant_id = ?, user_id = ?, company_id = ? where id = ?",
+						orgB, userB, companyB, ownGrant)))
+			.isInstanceOf(DataAccessException.class)
+			.rootCause()
+			.hasMessageContaining("row-level security");
+		// the other tenant's row is invisible to an update from this tenant
+		assertThat(inTenant(orgA, () -> app.update("update member_access set created_at = now() where id = ?",
+				foreignGrant))).isZero();
+		assertThat(grantIds(orgB))
+			.containsExactly(foreignGrant);
+		assertThat(grantIds(orgA))
+			.containsExactly(ownGrant);
+	}
+
+	/** C36: in the right tenant, with a valid company, only the membership foreign key can stop the grant. */
+	@Test
+	void membershipForeignKeyRejectsGrantWithoutMembership() throws Exception {
+		UUID withoutAnyMembership = UUID.randomUUID();
+		asOwnerIn(orgA, "insert into users (id, name, email, password_hash, created_at) values (?, 'U', ?, 'x', now())",
+				withoutAnyMembership, withoutAnyMembership + "@example.com");
+
+		// userB is a member of orgB only
+		assertThatThrownBy(() -> grantAs(orgA, userB, companyA, null)).isInstanceOf(DataAccessException.class)
+			.rootCause()
+			.hasMessageContaining("member_access_membership_fk");
+		assertThatThrownBy(() -> grantAs(orgA, withoutAnyMembership, companyA, null))
+			.isInstanceOf(DataAccessException.class)
+			.rootCause()
+			.hasMessageContaining("member_access_membership_fk");
+		assertThat(grantIds(orgA)).isEmpty();
+	}
+
 }

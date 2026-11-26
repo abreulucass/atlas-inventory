@@ -121,7 +121,6 @@ class MemberVisibilityIT extends AccessITSupport {
 		getAs(member, companies(companyId)).andExpect(status().isNotFound());
 	}
 
-	/** C25: OWNER and ADMIN see everything, without grants and with restrictive-looking ones. */
 	/** C35: a warehouse revoke applies on the next read with a token issued before it (ACC-06). */
 	@Test
 	void warehouseRevokeAppliesWithOldToken() throws Exception {
@@ -142,6 +141,7 @@ class MemberVisibilityIT extends AccessITSupport {
 		getAs(member, warehouses(companyId) + "/" + warehouseId).andExpect(status().isNotFound());
 	}
 
+	/** C25: OWNER and ADMIN see everything, without grants and with restrictive-looking ones. */
 	@Test
 	void managersSeeEverything() throws Exception {
 		Session owner = register("Olga");
