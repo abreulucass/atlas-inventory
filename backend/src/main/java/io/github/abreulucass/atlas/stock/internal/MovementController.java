@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import io.github.abreulucass.atlas.stock.MovementView;
 import io.github.abreulucass.atlas.stock.MovementPage;
 import io.github.abreulucass.atlas.stock.Movements;
+import io.swagger.v3.oas.annotations.Parameter;
 
 @RestController
 @RequestMapping("/api/companies/{companyId}/warehouses/{warehouseId}/movements")
@@ -29,7 +30,7 @@ class MovementController {
 
 	@PostMapping
 	ResponseEntity<MovementView> record(@PathVariable String companyId, @PathVariable String warehouseId,
-			@RequestHeader(name = "Idempotency-Key", required = false) @Nullable String key,
+			@Parameter(required = true) @RequestHeader(name = "Idempotency-Key", required = false) @Nullable String key,
 			@RequestBody(required = false) @Nullable String body) {
 		MovementView view = movements.record(companyId, warehouseId, key, body);
 		return ResponseEntity

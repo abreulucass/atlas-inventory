@@ -43,7 +43,8 @@ class SecurityConfiguration {
 			.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests(a -> a
 				.requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
-						"/actuator/health", "/actuator/health/**")
+						"/actuator/health", "/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**",
+						"/swagger-ui.html")
 				.permitAll()
 				.anyRequest()
 				.authenticated())

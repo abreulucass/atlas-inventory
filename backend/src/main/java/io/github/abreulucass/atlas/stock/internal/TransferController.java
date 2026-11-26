@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.github.abreulucass.atlas.stock.TransferView;
 import io.github.abreulucass.atlas.stock.Transfers;
+import io.swagger.v3.oas.annotations.Parameter;
 
 @RestController
 @RequestMapping("/api/transfers")
@@ -26,7 +27,7 @@ class TransferController {
 	}
 
 	@PostMapping
-	ResponseEntity<TransferView> record(@RequestHeader(name = "Idempotency-Key", required = false) @Nullable String key,
+	ResponseEntity<TransferView> record(@Parameter(required = true) @RequestHeader(name = "Idempotency-Key", required = false) @Nullable String key,
 			@RequestBody(required = false) @Nullable String body) {
 		TransferView view = transfers.record(key, body);
 		return ResponseEntity.created(URI.create("/api/transfers/" + view.id())).body(view);

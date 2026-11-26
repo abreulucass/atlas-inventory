@@ -17,3 +17,9 @@ spring:
 atlas:
   security:
     jwt-secret: ${ATLAS_JWT_SECRET}
+# OpenAPI document and Swagger UI; off unless asked, so a deployment does not publish its surface by default.
+springdoc:
+  api-docs:
+    enabled: ${ATLAS_API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: ${ATLAS_API_DOCS_ENABLED:false}
