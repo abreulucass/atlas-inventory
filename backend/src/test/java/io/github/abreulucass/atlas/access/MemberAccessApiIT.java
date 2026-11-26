@@ -1,6 +1,7 @@
 package io.github.abreulucass.atlas.access;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -52,8 +53,9 @@ class MemberAccessApiIT extends AccessITSupport {
 
 		assertThat(body(byOwner)).isEqualTo(grant("COMPANY", first, null));
 		assertThat(body(byAdmin)).isEqualTo(grant("COMPANY", second, null));
-		assertThat(grantRows(owner.organizationId())).extracting(r -> r.get("company_id"))
-			.containsExactlyInAnyOrder(first, second);
+		assertThat(grantRows(owner.organizationId()))
+			.extracting(r -> r.get("user_id"), r -> r.get("company_id"), r -> r.get("warehouse_id"))
+			.containsExactlyInAnyOrder(tuple(member.userId(), first, null), tuple(member.userId(), second, null));
 	}
 
 	@Test
@@ -67,12 +69,15 @@ class MemberAccessApiIT extends AccessITSupport {
 
 		ResultActions byOwner = grantWarehouseAs(owner, member.userId(), first).andExpect(status().isCreated())
 			.andExpect(header().string("Location", "/api/members/" + member.userId() + "/access/warehouses/" + first));
-		ResultActions byAdmin = grantWarehouseAs(admin, member.userId(), second).andExpect(status().isCreated());
+		ResultActions byAdmin = grantWarehouseAs(admin, member.userId(), second).andExpect(status().isCreated())
+			.andExpect(header().string("Location", "/api/members/" + member.userId() + "/access/warehouses/" + second));
 
 		assertThat(body(byOwner)).isEqualTo(grant("WAREHOUSE", companyId, first));
 		assertThat(body(byAdmin)).isEqualTo(grant("WAREHOUSE", companyId, second));
-		assertThat(grantRows(owner.organizationId())).extracting(r -> r.get("warehouse_id"))
-			.containsExactlyInAnyOrder(first, second);
+		assertThat(grantRows(owner.organizationId()))
+			.extracting(r -> r.get("user_id"), r -> r.get("company_id"), r -> r.get("warehouse_id"))
+			.containsExactlyInAnyOrder(tuple(member.userId(), companyId, first),
+					tuple(member.userId(), companyId, second));
 	}
 
 	@Test
