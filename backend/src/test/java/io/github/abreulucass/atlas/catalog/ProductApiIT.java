@@ -264,9 +264,118 @@ class ProductApiIT extends CatalogITSupport {
 		}
 	}
 
+	Map<String, Object> row(UUID tenant, UUID id) {
+		return rows(tenant, "products").stream().filter(r -> r.get("id").equals(id)).findFirst().orElseThrow();
+	}
+
+	@Test
+	void archiveReturns204AndIncrementsVersion() throws Exception {
+		Session owner = register();
+		Session admin = joinAs(owner, "ADMIN");
+
+		for (Session as : List.of(owner, admin)) {
+			UUID id = createProduct(as, "SKU-" + UUID.randomUUID().toString().substring(0, 8), "Hammer", "UN");
+			Map<String, Object> before = row(owner.organizationId(), id);
+
+			postEmpty(as, "/api/products/" + id + "/archive").andExpect(status().isNoContent());
+
+			getAs(as, "/api/products/" + id).andExpect(jsonPath("$.status").value("ARCHIVED"))
+				.andExpect(jsonPath("$.version").value(1));
+			Map<String, Object> after = row(owner.organizationId(), id);
+			assertThat(after.get("archived_at")).isNotNull();
+			assertThat(after).containsEntry("version", 1L);
+			assertThat(after).usingRecursiveComparison()
+				.ignoringFields("archived_at", "version")
+				.isEqualTo(before);
+		}
+	}
+
+	@Test
+	void unarchiveReturns204AndIncrementsVersion() throws Exception {
+		Session owner = register();
+		Session admin = joinAs(owner, "ADMIN");
+
+		for (Session as : List.of(owner, admin)) {
+			UUID id = seedProduct(owner.organizationId(), "SKU-" + UUID.randomUUID().toString().substring(0, 8),
+					"Hammer", "UN", null, true);
+			Map<String, Object> before = row(owner.organizationId(), id);
+
+			postEmpty(as, "/api/products/" + id + "/unarchive").andExpect(status().isNoContent());
+
+			getAs(as, "/api/products/" + id).andExpect(jsonPath("$.status").value("ACTIVE"))
+				.andExpect(jsonPath("$.version").value(1));
+			Map<String, Object> after = row(owner.organizationId(), id);
+			assertThat(after).containsEntry("archived_at", null).containsEntry("version", 1L);
+			assertThat(after).usingRecursiveComparison()
+				.ignoringFields("archived_at", "version")
+				.isEqualTo(before);
+		}
+	}
+
+	@Test
+	void repeatedArchiveOrUnarchiveLeavesRowUnchanged() throws Exception {
+		Session owner = register();
+		UUID archived = seedProduct(owner.organizationId(), "ARC", "Archived", "UN", null, true);
+		UUID active = createProduct(owner, "ACT", "Active", "UN");
+		Map<String, Object> archivedBefore = row(owner.organizationId(), archived);
+		Map<String, Object> activeBefore = row(owner.organizationId(), active);
+
+		postEmpty(owner, "/api/products/" + archived + "/archive").andExpect(status().isNoContent());
+		postEmpty(owner, "/api/products/" + active + "/unarchive").andExpect(status().isNoContent());
+
+		assertThat(row(owner.organizationId(), archived)).isEqualTo(archivedBefore);
+		assertThat(row(owner.organizationId(), active)).isEqualTo(activeBefore);
+	}
+
+	@Test
+	void memberCannotArchiveOrUnarchiveProduct() throws Exception {
+		Session owner = register();
+		Session member = joinAs(owner, "MEMBER");
+		UUID active = createProduct(owner, "ACT", "Active", "UN");
+		UUID archived = seedProduct(owner.organizationId(), "ARC", "Archived", "UN", null, true);
+		List<Map<String, Object>> before = rows(owner.organizationId(), "products");
+
+		postEmpty(member, "/api/products/" + active + "/archive").andExpect(status().isForbidden());
+		postEmpty(member, "/api/products/" + archived + "/unarchive").andExpect(status().isForbidden());
+		postEmpty(member, "/api/products/not-a-uuid/archive").andExpect(status().isForbidden());
+
+		assertThat(rows(owner.organizationId(), "products")).isEqualTo(before);
+	}
+
+	@Test
+	void archiveOtherTenantUnknownOrMalformedReturns404() throws Exception {
+		Session owner = register();
+		Session other = register();
+		UUID foreign = createProduct(other, "FOREIGN", "Foreign", "UN");
+		List<Map<String, Object>> before = rows(other.organizationId(), "products");
+
+		for (String id : List.of(foreign.toString(), UUID.randomUUID().toString(), "not-a-uuid", "1-1-1-1-1")) {
+			postEmpty(owner, "/api/products/" + id + "/archive").andExpect(status().isNotFound());
+			postEmpty(owner, "/api/products/" + id + "/unarchive").andExpect(status().isNotFound());
+		}
+		assertThat(rows(other.organizationId(), "products")).isEqualTo(before);
+	}
+
+	@Test
+	void archiveProductInArchivedOrganizationReturns409() throws Exception {
+		Session owner = register();
+		UUID active = createProduct(owner, "ACT", "Active", "UN");
+		UUID archived = seedProduct(owner.organizationId(), "ARC", "Archived", "UN", null, true);
+		archiveOrganization(owner.organizationId());
+		List<Map<String, Object>> before = rows(owner.organizationId(), "products");
+
+		postEmpty(owner, "/api/products/" + active + "/archive").andExpect(status().isConflict());
+		postEmpty(owner, "/api/products/" + archived + "/unarchive").andExpect(status().isConflict());
+		postEmpty(owner, "/api/products/not-a-uuid/archive").andExpect(status().isConflict());
+
+		assertThat(rows(owner.organizationId(), "products")).isEqualTo(before);
+	}
+
 	@Test
 	void withoutTokenReturns401() throws Exception {
 		mvc.perform(get("/api/products/" + UUID.randomUUID())).andExpect(status().isUnauthorized());
+		mvc.perform(post("/api/products/" + UUID.randomUUID() + "/archive")).andExpect(status().isUnauthorized());
+		mvc.perform(post("/api/products/" + UUID.randomUUID() + "/unarchive")).andExpect(status().isUnauthorized());
 		mvc.perform(post("/api/products").contentType(MediaType.APPLICATION_JSON).content(product("A1", "H", "UN")))
 			.andExpect(status().isUnauthorized());
 	}

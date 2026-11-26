@@ -110,13 +110,37 @@ public class Products {
 			product.rename(name);
 		}
 		product.moveTo(categoryId);
+		flush(product);
+		return view(product);
+	}
+
+	@Transactional
+	public void archive(String id) {
+		Product product = writable(id);
+		product.archive();
+		flush(product);
+	}
+
+	@Transactional
+	public void unarchive(String id) {
+		Product product = writable(id);
+		product.unarchive();
+		flush(product);
+	}
+
+	private Product writable(String id) {
+		requireWritable();
+		return get(id);
+	}
+
+	/** Writes now, so a concurrent winner is answered as {@code 409} here and not at commit. */
+	private void flush(Product product) {
 		try {
 			repository.flush();
 		}
 		catch (ObjectOptimisticLockingFailureException e) {
 			throw new StaleProductVersionException(product.getId());
 		}
-		return view(product);
 	}
 
 	/**
