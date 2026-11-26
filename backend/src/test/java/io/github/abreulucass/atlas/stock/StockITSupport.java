@@ -229,10 +229,22 @@ abstract class StockITSupport {
 		return connection;
 	}
 
-	/** Waits until exactly this many backends wait for a lock: the requests are queued behind the test's lock. */
-	void awaitLockWaiters(int count) throws InterruptedException {
-		awaitTrue(() -> app.queryForObject("select count(distinct pid) from pg_locks where not granted",
-				Integer.class) == count, count + " lock waiters");
+	/**
+	 * Waits until exactly this many backends are queued behind the held transaction: they wait for a lock it holds, or
+	 * for a backend that does (unrelated waiters of other tests do not count).
+	 */
+	void awaitLockWaiters(Connection holder, int count) throws Exception {
+		int holderPid;
+		try (var statement = holder.createStatement(); var rs = statement.executeQuery("select pg_backend_pid()")) {
+			rs.next();
+			holderPid = rs.getInt(1);
+		}
+		awaitTrue(() -> app.queryForObject("""
+				with recursive queued(pid) as (
+				    select pid from pg_stat_activity where ? = any(pg_blocking_pids(pid))
+				    union
+				    select a.pid from pg_stat_activity a join queued q on q.pid = any(pg_blocking_pids(a.pid)))
+				select count(*) from queued""", Integer.class, holderPid) == count, count + " lock waiters");
 	}
 
 	void awaitTrue(BooleanSupplier condition, String what) throws InterruptedException {

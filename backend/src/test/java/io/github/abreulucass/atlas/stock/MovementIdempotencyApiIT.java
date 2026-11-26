@@ -81,16 +81,22 @@ class MovementIdempotencyApiIT extends StockITSupport {
 		String json = move("IN", s.product(), 10, null);
 		MockHttpServletResponse first;
 		MockHttpServletResponse second;
-		try (Connection held = ownerTransaction(); ExecutorService pool = Executors.newFixedThreadPool(2)) {
-			// the test holds the key's lock, so both requests queue behind it and the winner is decided after release
-			try (PreparedStatement lock = held.prepareStatement("select pg_advisory_xact_lock(hashtextextended(?, 0))")) {
-				lock.setString(1, s.owner().organizationId() + ":" + key);
-				lock.execute();
+		try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+			Future<MockHttpServletResponse> a;
+			Future<MockHttpServletResponse> b;
+			// the test holds the key's lock, so both requests queue behind it and the winner is decided after release;
+			// the lock is released before the pool is awaited, on every exit (L-006)
+			try (Connection held = ownerTransaction()) {
+				try (PreparedStatement lock = held
+					.prepareStatement("select pg_advisory_xact_lock(hashtextextended(?, 0))")) {
+					lock.setString(1, s.owner().organizationId() + ":" + key);
+					lock.execute();
+				}
+				a = pool.submit(() -> send(s.owner(), s.path(), key, json).andReturn().getResponse());
+				b = pool.submit(() -> send(s.owner(), s.path(), key, json).andReturn().getResponse());
+				awaitLockWaiters(held, 2);
+				held.rollback();
 			}
-			Future<MockHttpServletResponse> a = pool.submit(() -> send(s.owner(), s.path(), key, json).andReturn().getResponse());
-			Future<MockHttpServletResponse> b = pool.submit(() -> send(s.owner(), s.path(), key, json).andReturn().getResponse());
-			awaitLockWaiters(2);
-			held.rollback();
 			first = a.get(30, TimeUnit.SECONDS);
 			second = b.get(30, TimeUnit.SECONDS);
 		}

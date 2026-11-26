@@ -35,7 +35,7 @@ class MovementConcurrencyIT extends StockITSupport {
 	static final Lock ROW = (held, s) -> execute(held, s,
 			"select 1 from stock_balances where tenant_id = ?::uuid and warehouse_id = ?::uuid and product_id = ?::uuid for update");
 
-	/** Holds an uncommitted first row of the (warehouse, product) pair at quantity 0. */
+	/** Holds an uncommitted first row of the pair at quantity 0; rolled back, it leaves the requests to create the row. */
 	static final Lock FIRST_ROW = (held, s) -> execute(held, s, """
 			insert into stock_balances (tenant_id, company_id, warehouse_id, product_id, sku, unit, quantity)
 			select ?::uuid, company_id, ?::uuid, id, sku, unit, 0
@@ -62,18 +62,25 @@ class MovementConcurrencyIT extends StockITSupport {
 		}
 	}
 
-	/** Sends the movements in order, each queued behind the held lock before the next starts; then commits the lock. */
+	/**
+	 * Sends the movements in order, each queued behind the held lock before the next starts; then rolls the lock back.
+	 * The held transaction is released before the executor is awaited, on every exit, so a failed wait cannot leave
+	 * requests blocked on it (L-006).
+	 */
 	List<MockHttpServletResponse> underLock(Scene s, Lock lock, String... bodies) throws Exception {
 		List<MockHttpServletResponse> responses = new ArrayList<>();
-		try (Connection held = ownerTransaction(); ExecutorService pool = Executors.newFixedThreadPool(bodies.length)) {
-			lock.take(held, s);
+		try (ExecutorService pool = Executors.newFixedThreadPool(bodies.length)) {
 			List<Future<MockHttpServletResponse>> futures = new ArrayList<>();
-			for (String body : bodies) {
-				futures.add(pool.submit(
-						() -> send(s.owner(), s.path(), UUID.randomUUID().toString(), body).andReturn().getResponse()));
-				awaitLockWaiters(futures.size());
+			try (Connection held = ownerTransaction()) {
+				lock.take(held, s);
+				for (String body : bodies) {
+					futures.add(pool.submit(() -> send(s.owner(), s.path(), UUID.randomUUID().toString(), body)
+						.andReturn()
+						.getResponse()));
+					awaitLockWaiters(held, futures.size());
+				}
+				held.rollback();
 			}
-			held.commit();
 			for (Future<MockHttpServletResponse> future : futures) {
 				responses.add(future.get(30, TimeUnit.SECONDS));
 			}
@@ -125,6 +132,8 @@ class MovementConcurrencyIT extends StockITSupport {
 		List<Map<String, Object>> balances = ledger(s.owner().organizationId()).balances();
 		assertThat(balances).hasSize(1);
 		assertThat((BigDecimal) balances.get(0).get("quantity")).isEqualByComparingTo("7");
+		// the blocker's placeholder row (sku 'SKU') was rolled back: this row was created by the two requests
+		assertThat(balances.get(0)).containsEntry("product_id", s.product()).doesNotContainEntry("sku", "SKU");
 		assertThat(ledger(s.owner().organizationId()).movements()).isEqualTo(2);
 	}
 
