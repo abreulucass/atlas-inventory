@@ -209,6 +209,22 @@ class StockTransferSchemaIT {
 	}
 
 	@Test
+	void itemForeignKeysAreEnforcedIndependently() throws Exception {
+		UUID productB = seedProduct(orgB);
+		UUID freshTransferA = seedTransfer(orgA, companyA, warehouseA1, warehouseA2, "key-a2");
+		// the row's own tenant_id is the session's, so RLS passes and only the FK on the varied column can fail
+		assertThatThrownBy(() -> inTenant(orgA, () -> app.update(INSERT_ITEM, orgA, transferB, productA)))
+			.isInstanceOf(DataAccessException.class)
+			.rootCause()
+			.hasMessageContaining("stock_transfer_items_tenant_id_transfer_id_fkey");
+		assertThatThrownBy(() -> inTenant(orgA, () -> app.update(INSERT_ITEM, orgA, freshTransferA, productB)))
+			.isInstanceOf(DataAccessException.class)
+			.rootCause()
+			.hasMessageContaining("stock_transfer_items_tenant_id_product_id_fkey");
+		assertThat(inTenant(orgA, () -> app.update(INSERT_ITEM, orgA, freshTransferA, productA))).isEqualTo(1);
+	}
+
+	@Test
 	void movementOriginCheckSeparatesKeyedFromTransferMovements() throws Exception {
 		asOwnerIn(orgA, """
 				insert into stock_balances (tenant_id, company_id, warehouse_id, product_id, sku, unit, quantity)
