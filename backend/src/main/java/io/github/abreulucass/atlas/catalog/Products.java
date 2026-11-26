@@ -2,6 +2,7 @@ package io.github.abreulucass.atlas.catalog;
 
 import java.math.BigInteger;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -82,6 +83,13 @@ public class Products {
 	public ProductView find(String id) {
 		TenantContext.require();
 		return view(get(id));
+	}
+
+	/** The organization's products among {@code ids}, archived included; unknown and foreign ids are skipped. */
+	@Transactional(readOnly = true)
+	public List<ProductView> findAll(Collection<UUID> ids) {
+		TenantContext.require();
+		return ids.isEmpty() ? List.of() : repository.findAllById(ids).stream().map(Products::view).toList();
 	}
 
 	/**
