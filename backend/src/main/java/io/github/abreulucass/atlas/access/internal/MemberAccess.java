@@ -15,6 +15,9 @@ import io.github.abreulucass.atlas.access.GrantTargets;
 import io.github.abreulucass.atlas.access.NotAllowedException;
 import io.github.abreulucass.atlas.access.Organizations;
 import io.github.abreulucass.atlas.access.TenantContext;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /**
  * Companies and warehouses granted to members of the tenant context's organization. Writes take the member lock of
@@ -22,6 +25,8 @@ import io.github.abreulucass.atlas.access.TenantContext;
  */
 @Service
 class MemberAccess {
+
+	private static final JsonMapper JSON = JsonMapper.builder().build();
 
 	private final Members members;
 
@@ -62,11 +67,14 @@ class MemberAccess {
 	}
 
 	@Transactional
-	GrantView grant(String id, @Nullable String companyId, @Nullable String warehouseId) {
+	GrantView grant(String id, @Nullable String body) {
 		UUID organizationId = TenantContext.require();
 		members.lockAndRequireManager(organizationId);
 		organizations.requireWritable(organizationId);
 		UUID userId = requireMember(id, organizationId);
+		JsonNode json = readBody(body);
+		String companyId = text(json, "companyId");
+		String warehouseId = text(json, "warehouseId");
 		if ((companyId == null) == (warehouseId == null)) {
 			throw new InvalidGrantException();
 		}
@@ -129,6 +137,30 @@ class MemberAccess {
 		UUID userId = Members.parseUserId(id);
 		memberships.findByUserIdAndOrganizationId(userId, organizationId).orElseThrow(MemberNotFoundException::new);
 		return userId;
+	}
+
+	private static JsonNode readBody(@Nullable String body) {
+		try {
+			JsonNode json = JSON.readTree(body == null ? "" : body);
+			if (json.isObject()) {
+				return json;
+			}
+		}
+		catch (JacksonException e) {
+			// falls through to the invalid grant below
+		}
+		throw new InvalidGrantException();
+	}
+
+	private static @Nullable String text(JsonNode json, String field) {
+		JsonNode value = json.get(field);
+		if (value == null || value.isNull()) {
+			return null;
+		}
+		if (!value.isString()) {
+			throw new InvalidGrantException();
+		}
+		return value.asString();
 	}
 
 	private static UUID parseBody(String id) {

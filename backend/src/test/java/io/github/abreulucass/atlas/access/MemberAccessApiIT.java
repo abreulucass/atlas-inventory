@@ -110,6 +110,29 @@ class MemberAccessApiIT extends AccessITSupport {
 		assertThat(grantRows(owner.organizationId())).isEmpty();
 	}
 
+	/** C32: 403, then 409, then 404 member, all before any 400 for the body. */
+	@Test
+	void malformedBodyYieldsToEarlierJudgements() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		Session other = join(owner, "MEMBER");
+		List<String> malformed = List.of("{not json", "[]", "\"x\"", "{\"companyId\": 5}", "{}", "");
+
+		for (String json : malformed) {
+			grantAs(member, other.userId(), json).andExpect(status().isForbidden());
+			grantAs(owner, UUID.randomUUID(), json).andExpect(status().isNotFound());
+			grantAs(owner, "not-a-uuid", json).andExpect(status().isNotFound());
+			grantAs(owner, member.userId(), json).andExpect(status().isBadRequest());
+		}
+		archiveOrganization(owner.organizationId());
+		for (String json : malformed) {
+			grantAs(owner, member.userId(), json).andExpect(status().isConflict());
+			grantAs(owner, UUID.randomUUID(), json).andExpect(status().isConflict());
+		}
+
+		assertThat(grantRows(owner.organizationId())).isEmpty();
+	}
+
 	@Test
 	void grantOtherTenantOrUnknownTargetReturns404() throws Exception {
 		Session owner = register("Olga");
