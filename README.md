@@ -6,21 +6,28 @@
 
 Plataforma de gestão de estoque multiempresa e multidepósito, com foco em consistência de dados e regras de negócio complexas.
 
-> Em desenvolvimento: o backend sobe e é testado, mas ainda não tem funcionalidades de domínio.
+> Em desenvolvimento: o backend do MVP está completo e testado; o frontend é o próximo passo.
 
 ## Por que este projeto
 
 Estoque é um domínio em que erros custam dinheiro: duas reservas simultâneas do mesmo item, uma transferência que sai de um depósito e não chega ao outro, um movimento registrado duas vezes. O Atlas Inventory trata concorrência, transações, integridade de dados, idempotência e isolamento multi-tenant como requisitos de primeira classe.
 
-## Funcionalidades
+## Feito
 
-- Produtos, categorias e fornecedores.
-- Estoque em múltiplos depósitos e transferência entre unidades.
-- Reserva de estoque para pedidos.
-- Controle de lotes e validade.
-- Histórico auditável de movimentações.
+- Autenticação com JWT e refresh token rotativo; organizações (tenants) e troca de organização.
+- Membros e papéis (`OWNER`, `ADMIN`, `MEMBER`) e acesso por empresa e depósito.
+- Empresas e depósitos.
+- Categorias e produtos (SKU, unidade, busca, filtros, arquivamento, controle de versão).
+- Movimentações de estoque idempotentes (entrada, saída, ajuste) e saldos por depósito.
+- Transferências atômicas entre depósitos, com vários itens.
+- Isolamento multi-tenant com RLS forçada no PostgreSQL.
+
+## Roadmap
+
+- Fornecedores.
+- Reservas de estoque para pedidos.
+- Lotes e validade.
 - Compras e reposição.
-- Controle de acesso e isolamento multi-tenant.
 - Dashboard de indicadores operacionais.
 
 ## Arquitetura
@@ -45,9 +52,16 @@ Requisitos: JDK 25 e Docker.
 cd backend
 docker compose up -d --wait   # PostgreSQL 18 com os papéis atlas_owner e atlas_app
 export ATLAS_JWT_SECRET=dev-only-secret-dev-only-secret-0123   # fictício, só para desenvolvimento; mínimo de 32 bytes
+export ATLAS_API_DOCS_ENABLED=true   # opcional: publica o OpenAPI; desligado por padrão
 ./mvnw spring-boot:run        # http://localhost:8080/actuator/health
 ./mvnw verify                 # testes; os de integração sobem o próprio Postgres (Testcontainers)
 ```
+
+Com `ATLAS_API_DOCS_ENABLED=true`, o Swagger UI fica em `http://localhost:8080/swagger-ui.html` e o documento OpenAPI em `http://localhost:8080/v3/api-docs`, ambos sem token. Sem a variável, respondem `404`.
+
+### Frontend e CORS
+
+O frontend (Next.js) chega à API por um BFF: os route handlers do Next chamam o backend no servidor e guardam os tokens em cookies httpOnly. O navegador nunca fala direto com a API, então o backend não tem CORS, de propósito.
 
 ### Autenticação
 
@@ -63,6 +77,16 @@ A API usa JWT (access de 15 min) e refresh token opaco rotativo (30 dias). `ATLA
 | `POST /api/companies/{companyId}/warehouses/{warehouseId}/movements` (header `Idempotency-Key` obrigatório) | com `Bearer`; `OWNER`/`ADMIN` em qualquer depósito, `MEMBER` só nos que vê |
 | `GET /api/companies/{companyId}/warehouses/{warehouseId}/movements`, `/movements/{id}`, `/stock` | com `Bearer`; quem vê o depósito |
 | `GET /api/products/{id}/stock` | com `Bearer`; saldo do produto nos depósitos que o chamador vê |
+| `GET /api/companies`, `/api/companies/{companyId}` | com `Bearer`; `OWNER`/`ADMIN` veem todas, `MEMBER` só as do seu acesso |
+| `POST /api/companies`, `/api/companies/{companyId}/archive`, `/unarchive` | com `Bearer`; `OWNER` e `ADMIN` |
+| `GET /api/companies/{companyId}/warehouses`, `/warehouses/{id}` | com `Bearer`; `OWNER`/`ADMIN` veem todos, `MEMBER` só os do seu acesso |
+| `POST /api/companies/{companyId}/warehouses`, `/warehouses/{id}/archive`, `/unarchive` | com `Bearer`; `OWNER` e `ADMIN` |
+| `GET /api/categories`, `/api/categories/{id}` | com `Bearer`; qualquer membro |
+| `POST /api/categories`, `/api/categories/{id}/archive`, `/unarchive` | com `Bearer`; `OWNER` e `ADMIN` |
+| `GET /api/products`, `/api/products/{id}` | com `Bearer`; qualquer membro |
+| `POST /api/products`, `PATCH /api/products/{id}`, `POST /api/products/{id}/archive`, `/unarchive` | com `Bearer`; `OWNER` e `ADMIN` |
+| `POST /api/transfers` (header `Idempotency-Key` obrigatório) | com `Bearer`; `OWNER`/`ADMIN` entre quaisquer depósitos, `MEMBER` só quando vê origem e destino |
+| `GET /api/transfers/{id}` | com `Bearer`; `OWNER`/`ADMIN`, ou `MEMBER` que vê a origem ou o destino |
 | `POST /api/members/{userId}/access`, `DELETE /api/members/{userId}/access/companies/{companyId}`, `DELETE /api/members/{userId}/access/warehouses/{warehouseId}` | com `Bearer`; `OWNER` e `ADMIN` |
 
 ## Documentação
