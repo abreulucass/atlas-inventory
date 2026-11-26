@@ -31,10 +31,10 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import io.github.abreulucass.atlas.TestcontainersConfiguration;
+import io.github.abreulucass.atlas.OwnerFixture;
 import io.github.abreulucass.atlas.access.MissingTenantContextException;
 import io.github.abreulucass.atlas.access.OrganizationArchivedException;
 import io.github.abreulucass.atlas.access.Organizations;
-import io.github.abreulucass.atlas.access.TenantContext;
 
 @SpringBootTest
 @Import(TestcontainersConfiguration.class)
@@ -65,8 +65,8 @@ class CompaniesIT {
 		return organizations.create("Org", "org-" + UUID.randomUUID());
 	}
 
-	static <T> T as(UUID tenant, Callable<T> work) throws Exception {
-		return TenantContext.callAs(tenant, work);
+	<T> T as(UUID tenant, Callable<T> work) throws Exception {
+		return OwnerFixture.callAsOwner(app, tenant, work);
 	}
 
 	// RLS is forced on the owner too, so it seeds inside the tenant it writes to
@@ -583,5 +583,4 @@ class CompaniesIT {
 		assertThatThrownBy(() -> as(org, () -> companies.find(UUID.randomUUID())))
 			.isInstanceOf(CompanyNotFoundException.class);
 	}
-
 }

@@ -112,7 +112,7 @@ class Members {
 	}
 
 	/** Takes the transaction-scoped member lock of the organization, then returns the caller's role. */
-	private Role lockAndRequireManager(UUID organizationId) {
+	Role lockAndRequireManager(UUID organizationId) {
 		jdbc.sql("select pg_advisory_xact_lock(hashtextextended(?, 0))")
 			.param("members:" + organizationId)
 			.query((rs, i) -> 1)
@@ -127,13 +127,12 @@ class Members {
 	}
 
 	// parsed after the caller and archived checks, so a malformed id follows the spec's precedence
-	private static UUID parseUserId(String id) {
-		try {
-			return UUID.fromString(id);
-		}
-		catch (IllegalArgumentException e) {
+	static UUID parseUserId(String id) {
+		UUID userId = Uuids.parse(id);
+		if (userId == null) {
 			throw new MemberNotFoundException();
 		}
+		return userId;
 	}
 
 	private static Role parseRole(String role) {

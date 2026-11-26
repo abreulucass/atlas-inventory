@@ -17,6 +17,7 @@ Todas as mudanças relevantes ficam neste arquivo. O formato segue o
 - API de empresas (`/api/companies`): criar, listar (com `includeArchived`), buscar por id, arquivar e desarquivar; qualquer membro lê, só `OWNER`/`ADMIN` escreve (papel lido do banco a cada requisição, `Permissions` no módulo `access`).
 - Depósitos (módulo `warehouse`) e API (`/api/companies/{companyId}/warehouses`): criar, listar (com `includeArchived`), buscar por id, arquivar e desarquivar; nome e código únicos por empresa, chave composta no banco impede apontar para empresa de outro tenant; qualquer membro lê, só `OWNER`/`ADMIN` escreve; empresa arquivada bloqueia só a criação.
 - Membros da organização (`/api/members`): listar, adicionar usuário já cadastrado por e-mail, mudar papel e remover; `OWNER` gerencia todos, `ADMIN` só `MEMBER`, sempre resta um `OWNER`; a remoção revoga os refresh tokens e o access token antigo recebe `401` na hora (associação conferida a cada requisição).
+- Acesso de membros por empresa e depósito (`/api/members/{userId}/access`): `OWNER`/`ADMIN` concedem e revogam empresas (com todos os depósitos) ou depósitos avulsos; um `MEMBER` lista e lê só o que lhe foi concedido, o resto responde `404`, e a mudança vale na requisição seguinte; as concessões somem com a associação.
 
 ### Alterado
 

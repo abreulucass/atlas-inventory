@@ -59,6 +59,8 @@ A API usa JWT (access de 15 min) e refresh token opaco rotativo (30 dias). `ATLA
 | `POST /api/auth/switch-organization`, `GET /api/me` | com `Authorization: Bearer <access token>` |
 | `GET /api/members` | com `Bearer`; qualquer membro |
 | `POST /api/members`, `PATCH /api/members/{userId}`, `DELETE /api/members/{userId}` | com `Bearer`; `OWNER` gerencia todos, `ADMIN` só `MEMBER` |
+| `GET /api/members/{userId}/access` | com `Bearer`; `OWNER`/`ADMIN` leem de qualquer membro, `MEMBER` só o próprio |
+| `POST /api/members/{userId}/access`, `DELETE /api/members/{userId}/access/companies/{companyId}`, `DELETE /api/members/{userId}/access/warehouses/{warehouseId}` | com `Bearer`; `OWNER` e `ADMIN` |
 
 ## Documentação
 
