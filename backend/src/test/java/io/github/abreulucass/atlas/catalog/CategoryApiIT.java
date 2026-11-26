@@ -63,7 +63,8 @@ class CategoryApiIT extends CatalogITSupport {
 		Session owner = register();
 
 		for (String json : List.of("{\"name\": \"\"}", "{\"name\": \"   \"}", "{}", "{\"name\": null}",
-				"{\"name\": \"%s\"}".formatted("x".repeat(81)), "not json", "")) {
+				"{\"name\": \"%s\"}".formatted("x".repeat(81)), "not json", "", "{\"name\": 32}", "{\"name\": true}",
+				"[]", "\"Tools\"")) {
 			postJson(owner, "/api/categories", json).andExpect(status().isBadRequest());
 		}
 		assertThat(rows(owner.organizationId(), "categories")).isEmpty();
@@ -106,11 +107,12 @@ class CategoryApiIT extends CatalogITSupport {
 	@Test
 	void getReturnsOwnCategory() throws Exception {
 		Session owner = register();
+		Session admin = joinAs(owner, "ADMIN");
 		Session member = joinAs(owner, "MEMBER");
 		UUID active = createCategory(owner, "Tools");
 		UUID archived = seedArchivedCategory(owner.organizationId(), "Old");
 
-		for (Session as : List.of(owner, member)) {
+		for (Session as : List.of(owner, admin, member)) {
 			getAs(as, "/api/categories/" + active).andExpect(status().isOk())
 				.andExpect(jsonPath("$.id").value(active.toString()))
 				.andExpect(jsonPath("$.name").value("Tools"))
@@ -142,11 +144,14 @@ class CategoryApiIT extends CatalogITSupport {
 		Session owner = register();
 		Session member = joinAs(owner, "MEMBER");
 		UUID id = createCategory(owner, "Tools");
+		UUID archived = seedArchivedCategory(owner.organizationId(), "Old");
 		List<Map<String, Object>> before = rows(owner.organizationId(), "categories");
 
 		postJson(member, "/api/categories", "{\"name\": \"Other\"}").andExpect(status().isForbidden());
+		postJson(member, "/api/categories", "{").andExpect(status().isForbidden());
+		postJson(member, "/api/categories", "{\"name\": 32}").andExpect(status().isForbidden());
 		postEmpty(member, "/api/categories/" + id + "/archive").andExpect(status().isForbidden());
-		postEmpty(member, "/api/categories/" + id + "/unarchive").andExpect(status().isForbidden());
+		postEmpty(member, "/api/categories/" + archived + "/unarchive").andExpect(status().isForbidden());
 
 		assertThat(rows(owner.organizationId(), "categories")).isEqualTo(before);
 	}
@@ -156,6 +161,7 @@ class CategoryApiIT extends CatalogITSupport {
 		Session owner = register();
 		Session other = register();
 		UUID foreign = createCategory(other, "Foreign");
+		UUID foreignArchived = seedArchivedCategory(other.organizationId(), "ForeignOld");
 		List<Map<String, Object>> before = rows(other.organizationId(), "categories");
 
 		for (String id : List.of(foreign.toString(), UUID.randomUUID().toString(), "not-a-uuid", "1-1-1-1-1")) {
@@ -163,6 +169,8 @@ class CategoryApiIT extends CatalogITSupport {
 			postEmpty(owner, "/api/categories/" + id + "/archive").andExpect(status().isNotFound());
 			postEmpty(owner, "/api/categories/" + id + "/unarchive").andExpect(status().isNotFound());
 		}
+		postEmpty(owner, "/api/categories/" + foreignArchived + "/unarchive").andExpect(status().isNotFound());
+		getAs(owner, "/api/categories/" + foreignArchived).andExpect(status().isNotFound());
 		assertThat(rows(other.organizationId(), "categories")).isEqualTo(before);
 	}
 
@@ -170,12 +178,15 @@ class CategoryApiIT extends CatalogITSupport {
 	void categoryWritesInArchivedOrganizationReturn409() throws Exception {
 		Session owner = register();
 		UUID id = createCategory(owner, "Tools");
+		UUID archived = seedArchivedCategory(owner.organizationId(), "Old");
 		archiveOrganization(owner.organizationId());
 		List<Map<String, Object>> before = rows(owner.organizationId(), "categories");
 
 		postJson(owner, "/api/categories", "{\"name\": \"Other\"}").andExpect(status().isConflict());
+		postJson(owner, "/api/categories", "{").andExpect(status().isConflict());
+		postJson(owner, "/api/categories", "{\"name\": 32}").andExpect(status().isConflict());
 		postEmpty(owner, "/api/categories/" + id + "/archive").andExpect(status().isConflict());
-		postEmpty(owner, "/api/categories/" + id + "/unarchive").andExpect(status().isConflict());
+		postEmpty(owner, "/api/categories/" + archived + "/unarchive").andExpect(status().isConflict());
 
 		assertThat(rows(owner.organizationId(), "categories")).isEqualTo(before);
 	}

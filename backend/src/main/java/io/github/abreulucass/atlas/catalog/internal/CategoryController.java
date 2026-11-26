@@ -4,6 +4,7 @@ import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -28,9 +29,6 @@ class CategoryController {
 		this.categories = categories;
 	}
 
-	record CreateCategory(String name) {
-	}
-
 	@GetMapping
 	List<CategoryView> list(@RequestParam(defaultValue = "false") boolean includeArchived) {
 		return categories.list(includeArchived);
@@ -42,8 +40,8 @@ class CategoryController {
 	}
 
 	@PostMapping
-	ResponseEntity<CategoryView> create(@RequestBody CreateCategory request) {
-		UUID id = categories.create(request.name());
+	ResponseEntity<CategoryView> create(@RequestBody(required = false) @Nullable String body) {
+		UUID id = categories.createFromBody(body);
 		return ResponseEntity.created(URI.create("/api/categories/" + id)).body(categories.find(id.toString()));
 	}
 

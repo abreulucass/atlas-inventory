@@ -3,6 +3,7 @@ package io.github.abreulucass.atlas.catalog;
 import java.util.List;
 import java.util.UUID;
 
+import org.jspecify.annotations.Nullable;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
@@ -14,10 +15,15 @@ import io.github.abreulucass.atlas.access.TenantContext;
 import io.github.abreulucass.atlas.catalog.internal.CatalogIds;
 import io.github.abreulucass.atlas.catalog.internal.Category;
 import io.github.abreulucass.atlas.catalog.internal.CategoryRepository;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
 /** Flat categories of the organization in the tenant context. Ids arrive as text and are parsed after the checks. */
 @Service
 public class Categories {
+
+	private static final JsonMapper JSON = JsonMapper.builder().build();
 
 	private static final int MAX_NAME = 80;
 
@@ -31,6 +37,13 @@ public class Categories {
 		this.repository = repository;
 		this.organizations = organizations;
 		this.permissions = permissions;
+	}
+
+	/** Parses the raw body after the role and organization checks, so a malformed one never jumps the precedence. */
+	@Transactional
+	public UUID createFromBody(@Nullable String body) {
+		requireWritable();
+		return create(name(body));
 	}
 
 	@Transactional
@@ -49,6 +62,22 @@ public class Categories {
 			}
 			throw e;
 		}
+	}
+
+	private static @Nullable String name(@Nullable String body) {
+		try {
+			JsonNode json = JSON.readTree(body == null ? "" : body);
+			if (json.isObject()) {
+				JsonNode name = json.get("name");
+				if (name != null && name.isString()) {
+					return name.asString();
+				}
+			}
+		}
+		catch (JacksonException e) {
+			// falls through to the invalid name below
+		}
+		throw new InvalidNameException(MAX_NAME);
 	}
 
 	@Transactional(readOnly = true)
