@@ -41,8 +41,8 @@ Products exist (feature 22) and warehouses exist (feature 16), but nothing says 
 | Endpoints | `POST`/`GET /api/companies/{companyId}/warehouses/{warehouseId}/movements`, `GET /api/companies/{companyId}/warehouses/{warehouseId}/stock`, `GET /api/products/{id}/stock` | Warehouses are nested under companies (feature 16) | n |
 | Movement body | `{type, productId, quantity, note}`; `note` optional for `IN`/`OUT`, required for `ADJUSTMENT` (the reason) | An adjustment without a reason is not auditable | n |
 | Quantity sign | `IN` and `OUT` take a positive `quantity`; `ADJUSTMENT` takes a non-zero signed `quantity` (a delta, not a counted total) | A delta does not depend on the balance read before it, so a retry or a race cannot set a stale total | n |
-| Quantity format | JSON number, absolute value greater than 0 and at most 1 000 000 000, at most 3 decimal places; for a non-fractional unit (`UN`, `CX`, `PC`) it must be whole; anything else `400` | Units already say `fractional` (feature 22) | n |
-| Note | Stripped; at most 500 characters; blank means absent | Free-text reason or reference | n |
+| Quantity format | JSON number, absolute value greater than 0 and at most 1 000 000 000, at most 3 decimal places; for a non-fractional unit (`UN`, `CX`, `PC`) it must be whole; anything else `400`, including numbers whose exponent overflows a decimal | Units already say `fractional` (feature 22) | n |
+| Note | Stripped; at most 500 characters; blank means absent; a note containing U+0000 answers `400` (PostgreSQL text cannot hold it) | Free-text reason or reference | n |
 | Idempotency key format | 1-100 characters, printable ASCII (`0x21`-`0x7E`) | Fits a UUID or a client reference | n |
 | "Same request" | Same warehouse, `type`, `productId`, `quantity` (numerically equal) and `note` after stripping | What the movement records; header order and whitespace do not matter | n |
 | Key scope | One key per organization, regardless of the user or warehouse; the replay returns the original movement to any member who sees its warehouse | A key names one business operation in the organization | n |
