@@ -201,6 +201,38 @@ class TransferConcurrencyIT extends TransferITSupport {
 		assertThat(snapshot(s.tenant()).ledger().balances()).filteredOn(b -> b.get("warehouse_id").equals(s.w3()))
 			.hasSize(2)
 			.noneMatch(b -> "HELD".equals(b.get("sku")));
+		destinationCreatedBetweenTransfers(s);
+	}
+
+	/**
+	 * The Verifier's interleaving: the destination (ordered first) does not exist, the origin (ordered last) is held;
+	 * T1 queues, a plain IN creates the destination row, T2 queues, then the release. Row snapshots would split T1 from
+	 * T2 and deadlock; both must answer 201.
+	 */
+	void destinationCreatedBetweenTransfers(TScene s) throws Exception {
+		UUID p3 = createProduct(s.owner(), sku(), "UN");
+		UUID origin = higher(s.w1(), s.w2());
+		UUID destination = origin.equals(s.w1()) ? s.w2() : s.w1();
+		stock(s, origin, p3, 12);
+		List<MockHttpServletResponse> responses = new ArrayList<>();
+		try (ExecutorService pool = Executors.newFixedThreadPool(2)) {
+			List<Future<MockHttpServletResponse>> futures = new ArrayList<>();
+			try (Connection held = ownerTransaction()) {
+				row(origin, p3).take(held, s);
+				futures.add(pool.submit(transferCall(s, origin, destination, p3, 4)));
+				awaitLockWaiters(held, 1);
+				stock(s, destination, p3, 2);
+				futures.add(pool.submit(transferCall(s, origin, destination, p3, 5)));
+				awaitLockWaiters(held, 2);
+				held.rollback();
+			}
+			for (Future<MockHttpServletResponse> future : futures) {
+				responses.add(future.get(30, TimeUnit.SECONDS));
+			}
+		}
+		assertThat(statuses(responses)).containsOnly(201);
+		assertThat(quantity(s, origin, p3)).isEqualByComparingTo("3");
+		assertThat(quantity(s, destination, p3)).isEqualByComparingTo("11");
 	}
 
 	/** A mix of transfers and movements, queued behind one held row, run twice. */

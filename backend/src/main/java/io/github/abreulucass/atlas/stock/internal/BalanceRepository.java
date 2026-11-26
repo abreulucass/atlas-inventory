@@ -60,6 +60,28 @@ public class BalanceRepository {
 	}
 
 	/**
+	 * Takes a transaction advisory lock per distinct (warehouse, product) slot, present or not, in ascending key order
+	 * (signed, as PostgreSQL orders bigint). Call before any balance read or write of a multi-slot operation: a row
+	 * snapshot cannot order slots that do not exist yet, and the key order can.
+	 */
+	public void lockSlots(UUID tenant, java.util.Collection<Slot> slots) {
+		var keys = new java.util.TreeSet<Long>();
+		for (Slot slot : new java.util.HashSet<>(slots)) {
+			keys.add(jdbc.sql("select hashtextextended('stock-slot:' || :t || ':' || :w || ':' || :p, 0)")
+				.param("t", tenant.toString())
+				.param("w", slot.warehouseId().toString())
+				.param("p", slot.productId().toString())
+				.query(Long.class)
+				.single());
+		}
+		// shortcut: a 64-bit hash collision between a slot key and an idempotency-key lock could in theory cross-wait; use a two-int key space if that matters
+		for (long key : keys) {
+			jdbc.sql("select pg_advisory_xact_lock(:k)").param("k", key).query(rs -> {
+			});
+		}
+	}
+
+	/**
 	 * Locks the existing balance rows of the products in both warehouses in one statement ordered by (warehouse,
 	 * product), and returns their quantities; a missing row is absent from the map. Every path that locks several
 	 * balance rows must use this order, or two transactions can deadlock.

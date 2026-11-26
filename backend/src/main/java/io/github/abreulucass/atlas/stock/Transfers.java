@@ -130,6 +130,12 @@ public class Transfers {
 			}
 		}
 
+		List<Slot> slots = new ArrayList<>();
+		for (UUID product : productIds) {
+			slots.add(new Slot(from.id(), product));
+			slots.add(new Slot(to.id(), product));
+		}
+		balances.lockSlots(tenant, slots);
 		Map<Slot, BigDecimal> locked = balances.lockForTransfer(tenant, from.id(), to.id(), productIds);
 		for (int i = 0; i < productIds.size(); i++) {
 			BigDecimal available = locked.getOrDefault(new Slot(from.id(), productIds.get(i)), BigDecimal.ZERO);
