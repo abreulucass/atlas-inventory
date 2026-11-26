@@ -109,7 +109,8 @@ public class MovementRepository {
 			.param("user", user)
 			.query(OffsetDateTime.class)
 			.single();
-		return new MovementView(id, warehouseId, productId, request.type(), request.delta(), balanceAfter,
+		// scale 3 like the stored column, so a replay answers the very same JSON as the original
+		return new MovementView(id, warehouseId, productId, request.type(), request.delta().setScale(3), balanceAfter,
 				request.note(), user, createdAt.toInstant());
 	}
 
