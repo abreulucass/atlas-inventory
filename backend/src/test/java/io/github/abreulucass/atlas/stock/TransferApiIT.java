@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.sql.Connection;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -66,7 +67,7 @@ class TransferApiIT extends TransferITSupport {
 		int round = 0;
 
 		for (Session as : List.of(s.owner(), admin)) {
-			var response = transfer(as, key(), transferBody(s.w1(), s.w2(), null, s.p1(), 4, s.p2(), 5))
+			var response = transfer(as, key(), transferBody(s.w1(), s.w2(), "round " + (round + 1), s.p1(), 4, s.p2(), 5))
 				.andExpect(status().isCreated())
 				.andReturn()
 				.getResponse();
@@ -76,10 +77,13 @@ class TransferApiIT extends TransferITSupport {
 			assertThat(response.getHeader("Location")).isEqualTo("/api/transfers/" + JsonPath.read(body, "$.id"));
 			assertThat((String) JsonPath.read(body, "$.fromWarehouseId")).isEqualTo(s.w1().toString());
 			assertThat((String) JsonPath.read(body, "$.toWarehouseId")).isEqualTo(s.w2().toString());
-			assertThat((String) JsonPath.read(body, "$.items[0].productId")).isEqualTo(s.p1().toString());
-			assertThat(number(body, "$.items[0].quantity")).isEqualByComparingTo("4");
-			assertThat((String) JsonPath.read(body, "$.items[1].productId")).isEqualTo(s.p2().toString());
-			assertThat(number(body, "$.items[1].quantity")).isEqualByComparingTo("5");
+			assertThat((String) JsonPath.read(body, "$.note")).isEqualTo("round " + round);
+			List<Map<String, Object>> items = JsonPath.read(body, "$.items");
+			assertThat(items).hasSize(2);
+			assertThat(items.get(0).get("productId")).isEqualTo(s.p1().toString());
+			assertThat(new BigDecimal(items.get(0).get("quantity").toString())).isEqualByComparingTo("4");
+			assertThat(items.get(1).get("productId")).isEqualTo(s.p2().toString());
+			assertThat(new BigDecimal(items.get(1).get("quantity").toString())).isEqualByComparingTo("5");
 			assertThat(quantityIn(s, s.w1(), s.p1())).isEqualByComparingTo(p1.subtract(BigDecimal.valueOf(4L * round)));
 			assertThat(quantityIn(s, s.w1(), s.p2())).isEqualByComparingTo(p2.subtract(BigDecimal.valueOf(5L * round)));
 			assertThat(quantityIn(s, s.w2(), s.p1())).isEqualByComparingTo(BigDecimal.valueOf(4L * round));
@@ -239,6 +243,58 @@ class TransferApiIT extends TransferITSupport {
 				.andExpect(jsonPath("$.productId").value(p3.toString()));
 			assertThat(snapshot(s.tenant())).isEqualTo(before);
 		}
+		failsAfterWritesBegan(s);
+	}
+
+	/**
+	 * Both items fit, so the preflight passes and writes begin; a trigger installed by the test then rejects the
+	 * TRANSFER_IN of the product ordered last, after the transfer, its items and the first destination change were
+	 * written. Production code is untouched; the whole state must come back as it was.
+	 */
+	void failsAfterWritesBegan(TScene s) throws Exception {
+		UUID last = higher(s.p1(), s.p2());
+		try (Connection ddl = ownerTransaction()) {
+			try (var statement = ddl.createStatement()) {
+				statement.execute("""
+						create function test_reject_transfer_in() returns trigger language plpgsql as $$
+						begin raise exception 'forced late failure'; end $$""");
+				statement.execute("""
+						create trigger test_reject_transfer_in before insert on stock_movements
+						for each row when (new.type = 'TRANSFER_IN' and new.product_id = '%s') execute function test_reject_transfer_in()"""
+					.formatted(last));
+			}
+			ddl.commit();
+		}
+		try {
+			for (Session as : writers(s)) {
+				Snapshot before = snapshot(s.tenant());
+				int status;
+				try {
+					status = transfer(as, key(), transferBody(s.w1(), s.w2(), null, s.p1(), 4, s.p2(), 5)).andReturn()
+						.getResponse()
+						.getStatus();
+				}
+				catch (Exception e) {
+					status = 500;
+				}
+				assertThat(status).as("late failure answers 500").isEqualTo(500);
+				assertThat(snapshot(s.tenant())).isEqualTo(before);
+			}
+		}
+		finally {
+			try (Connection ddl = ownerTransaction(); var statement = ddl.createStatement()) {
+				statement.execute("drop trigger test_reject_transfer_in on stock_movements");
+				statement.execute("drop function test_reject_transfer_in()");
+				ddl.commit();
+			}
+		}
+	}
+
+	/** The id Postgres orders last (uuid compares as unsigned bytes), the order the service writes in. */
+	static UUID higher(UUID a, UUID b) {
+		int high = Long.compareUnsigned(a.getMostSignificantBits(), b.getMostSignificantBits());
+		high = high != 0 ? high : Long.compareUnsigned(a.getLeastSignificantBits(), b.getLeastSignificantBits());
+		return high > 0 ? a : b;
 	}
 
 	@Test
@@ -374,7 +430,8 @@ class TransferApiIT extends TransferITSupport {
 		for (String what : List.of("origin warehouse", "destination warehouse", "origin company",
 				"destination company")) {
 			TScene s = tscene();
-			UUID to = what.startsWith("destination company") ? s.w3() : s.w2();
+			// a company case keeps the other company active: the origin company is A (W1), the destination B (W3)
+			UUID to = what.endsWith("company") ? s.w3() : s.w2();
 			switch (what) {
 				case "origin warehouse" -> archive(s.owner(),
 						"/api/companies/" + s.companyA() + "/warehouses/" + s.w1());
@@ -412,6 +469,17 @@ class TransferApiIT extends TransferITSupport {
 			for (String type : List.of("TRANSFER_OUT", "TRANSFER_IN")) {
 				send(as, path, key(), move(type, s.p1(), 1, null)).andExpect(status().isBadRequest());
 			}
+		}
+		// one-sided MEMBERs: the visible warehouse says 400 for the type, the denied one hides it with 404
+		Session onlyW1 = memberWith(s, "warehouseId", s.w1());
+		Session onlyW2 = memberWith(s, "warehouseId", s.w2());
+		for (String type : List.of("TRANSFER_OUT", "TRANSFER_IN")) {
+			send(onlyW1, path, key(), move(type, s.p1(), 1, null)).andExpect(status().isBadRequest());
+			send(onlyW2, path, key(), move(type, s.p1(), 1, null)).andExpect(status().isNotFound());
+			send(onlyW2, s.movements(s.companyA(), s.w2()), key(), move(type, s.p1(), 1, null))
+				.andExpect(status().isBadRequest());
+			send(onlyW1, s.movements(s.companyA(), s.w2()), key(), move(type, s.p1(), 1, null))
+				.andExpect(status().isNotFound());
 		}
 		assertThat(snapshot(s.tenant())).isEqualTo(before);
 	}
@@ -484,11 +552,33 @@ class TransferApiIT extends TransferITSupport {
 				earlier(s, as, key, other, 422, "Idempotency-Key was already", "not found");
 			}
 		}
+		// a MEMBER missing either end, reusing a used key with an otherwise matching body: 404 before the key reuse
+		Session onlyW1 = memberWith(s, "warehouseId", s.w1());
+		Session onlyW2 = memberWith(s, "warehouseId", s.w2());
+		String usedKey = key();
+		String usedBody = transferBody(s.w1(), s.w2(), null, s.p1(), 1);
+		transfer(owner, usedKey, usedBody).andExpect(status().isCreated());
+		for (Session as : List.of(onlyW1, onlyW2)) {
+			Snapshot before = snapshot(s.tenant());
+			transfer(as, usedKey, usedBody).andExpect(status().isNotFound());
+			assertThat(snapshot(s.tenant())).isEqualTo(before);
+		}
 		// 401 before 409 archived organization, which comes before 400 key
 		archiveOrganization(s.tenant());
 		for (Session as : List.of(owner, admin, member)) {
 			earlier(s, as, "has space", "{}", 409, "Organization is archived", "Idempotency");
 		}
+		// a rejected token that names the archived organization: a tampered signature of a real token
+		String token = owner.bearer();
+		int mid = token.lastIndexOf('.') + 5;
+		String tampered = token.substring(0, mid) + (token.charAt(mid) == 'A' ? 'B' : 'A') + token.substring(mid + 1);
+		assertThat(tampered).isNotEqualTo(token);
+		Snapshot beforeTampered = snapshot(s.tenant());
+		mvc.perform(post("/api/transfers").header("Authorization", tampered)
+			.contentType(MediaType.APPLICATION_JSON)
+			.header("Idempotency-Key", "has space")
+			.content("{}")).andExpect(status().isUnauthorized());
+		assertThat(snapshot(s.tenant())).isEqualTo(beforeTampered);
 		mvc.perform(post("/api/transfers").contentType(MediaType.APPLICATION_JSON)
 			.header("Idempotency-Key", "has space")
 			.content("{}")).andExpect(status().isUnauthorized());
