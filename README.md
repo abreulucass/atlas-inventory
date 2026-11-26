@@ -69,25 +69,48 @@ A API usa JWT (access de 15 min) e refresh token opaco rotativo (30 dias). `ATLA
 
 | Endpoint | Acesso |
 | -------- | ------ |
-| `POST /api/auth/register`, `/login`, `/refresh`, `/logout` | público |
-| `POST /api/auth/switch-organization`, `GET /api/me` | com `Authorization: Bearer <access token>` |
+| `POST /api/auth/register` | público |
+| `POST /api/auth/login` | público |
+| `POST /api/auth/refresh` | público |
+| `POST /api/auth/logout` | público |
+| `POST /api/auth/switch-organization` | com `Bearer` |
+| `GET /api/me` | com `Bearer` |
 | `GET /api/members` | com `Bearer`; qualquer membro |
-| `POST /api/members`, `PATCH /api/members/{userId}`, `DELETE /api/members/{userId}` | com `Bearer`; `OWNER` gerencia todos, `ADMIN` só `MEMBER` |
+| `POST /api/members` | com `Bearer`; `OWNER` gerencia todos, `ADMIN` só `MEMBER` |
+| `PATCH /api/members/{userId}` | com `Bearer`; `OWNER` gerencia todos, `ADMIN` só `MEMBER` |
+| `DELETE /api/members/{userId}` | com `Bearer`; `OWNER` gerencia todos, `ADMIN` só `MEMBER` |
 | `GET /api/members/{userId}/access` | com `Bearer`; `OWNER`/`ADMIN` leem de qualquer membro, `MEMBER` só o próprio |
+| `POST /api/members/{userId}/access` | com `Bearer`; `OWNER` e `ADMIN` |
+| `DELETE /api/members/{userId}/access/companies/{companyId}` | com `Bearer`; `OWNER` e `ADMIN` |
+| `DELETE /api/members/{userId}/access/warehouses/{warehouseId}` | com `Bearer`; `OWNER` e `ADMIN` |
 | `POST /api/companies/{companyId}/warehouses/{warehouseId}/movements` (header `Idempotency-Key` obrigatório) | com `Bearer`; `OWNER`/`ADMIN` em qualquer depósito, `MEMBER` só nos que vê |
-| `GET /api/companies/{companyId}/warehouses/{warehouseId}/movements`, `/movements/{id}`, `/stock` | com `Bearer`; quem vê o depósito |
+| `GET /api/companies/{companyId}/warehouses/{warehouseId}/movements` | com `Bearer`; quem vê o depósito |
+| `GET /api/companies/{companyId}/warehouses/{warehouseId}/movements/{id}` | com `Bearer`; quem vê o depósito |
+| `GET /api/companies/{companyId}/warehouses/{warehouseId}/stock` | com `Bearer`; quem vê o depósito |
 | `GET /api/products/{id}/stock` | com `Bearer`; saldo do produto nos depósitos que o chamador vê |
-| `GET /api/companies`, `/api/companies/{companyId}` | com `Bearer`; `OWNER`/`ADMIN` veem todas, `MEMBER` só as do seu acesso |
-| `POST /api/companies`, `/api/companies/{companyId}/archive`, `/unarchive` | com `Bearer`; `OWNER` e `ADMIN` |
-| `GET /api/companies/{companyId}/warehouses`, `/warehouses/{id}` | com `Bearer`; `OWNER`/`ADMIN` veem todos, `MEMBER` só os do seu acesso |
-| `POST /api/companies/{companyId}/warehouses`, `/warehouses/{id}/archive`, `/unarchive` | com `Bearer`; `OWNER` e `ADMIN` |
-| `GET /api/categories`, `/api/categories/{id}` | com `Bearer`; qualquer membro |
-| `POST /api/categories`, `/api/categories/{id}/archive`, `/unarchive` | com `Bearer`; `OWNER` e `ADMIN` |
-| `GET /api/products`, `/api/products/{id}` | com `Bearer`; qualquer membro |
-| `POST /api/products`, `PATCH /api/products/{id}`, `POST /api/products/{id}/archive`, `/unarchive` | com `Bearer`; `OWNER` e `ADMIN` |
+| `GET /api/companies` | com `Bearer`; `OWNER`/`ADMIN` veem todas, `MEMBER` só as do seu acesso |
+| `GET /api/companies/{id}` | com `Bearer`; `OWNER`/`ADMIN` veem todas, `MEMBER` só as do seu acesso |
+| `POST /api/companies` | com `Bearer`; `OWNER` e `ADMIN` |
+| `POST /api/companies/{id}/archive` | com `Bearer`; `OWNER` e `ADMIN` |
+| `POST /api/companies/{id}/unarchive` | com `Bearer`; `OWNER` e `ADMIN` |
+| `GET /api/companies/{companyId}/warehouses` | com `Bearer`; `OWNER`/`ADMIN` veem todos, `MEMBER` só os do seu acesso |
+| `GET /api/companies/{companyId}/warehouses/{id}` | com `Bearer`; `OWNER`/`ADMIN` veem todos, `MEMBER` só os do seu acesso |
+| `POST /api/companies/{companyId}/warehouses` | com `Bearer`; `OWNER` e `ADMIN` |
+| `POST /api/companies/{companyId}/warehouses/{id}/archive` | com `Bearer`; `OWNER` e `ADMIN` |
+| `POST /api/companies/{companyId}/warehouses/{id}/unarchive` | com `Bearer`; `OWNER` e `ADMIN` |
+| `GET /api/categories` | com `Bearer`; qualquer membro |
+| `GET /api/categories/{id}` | com `Bearer`; qualquer membro |
+| `POST /api/categories` | com `Bearer`; `OWNER` e `ADMIN` |
+| `POST /api/categories/{id}/archive` | com `Bearer`; `OWNER` e `ADMIN` |
+| `POST /api/categories/{id}/unarchive` | com `Bearer`; `OWNER` e `ADMIN` |
+| `GET /api/products` | com `Bearer`; qualquer membro |
+| `GET /api/products/{id}` | com `Bearer`; qualquer membro |
+| `POST /api/products` | com `Bearer`; `OWNER` e `ADMIN` |
+| `PATCH /api/products/{id}` | com `Bearer`; `OWNER` e `ADMIN` |
+| `POST /api/products/{id}/archive` | com `Bearer`; `OWNER` e `ADMIN` |
+| `POST /api/products/{id}/unarchive` | com `Bearer`; `OWNER` e `ADMIN` |
 | `POST /api/transfers` (header `Idempotency-Key` obrigatório) | com `Bearer`; `OWNER`/`ADMIN` entre quaisquer depósitos, `MEMBER` só quando vê origem e destino |
 | `GET /api/transfers/{id}` | com `Bearer`; `OWNER`/`ADMIN`, ou `MEMBER` que vê a origem ou o destino |
-| `POST /api/members/{userId}/access`, `DELETE /api/members/{userId}/access/companies/{companyId}`, `DELETE /api/members/{userId}/access/warehouses/{warehouseId}` | com `Bearer`; `OWNER` e `ADMIN` |
 
 ## Documentação
 
