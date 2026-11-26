@@ -122,6 +122,15 @@ abstract class CatalogITSupport {
 		return id;
 	}
 
+	UUID seedProduct(UUID tenant, String sku, String name, String unit, UUID categoryId, boolean archived) {
+		UUID id = UUID.randomUUID();
+		asOwnerIn(tenant, """
+				insert into products (id, tenant_id, sku, name, unit, category_id, archived_at)
+				values (?, ?, ?, ?, ?, ?, case when ? then now() end)""", id, tenant, sku, name, unit, categoryId,
+				archived);
+		return id;
+	}
+
 	ResultActions postJson(Session as, String path, String json) throws Exception {
 		return mvc.perform(post(path).header("Authorization", as.bearer())
 			.contentType(MediaType.APPLICATION_JSON)
@@ -134,6 +143,17 @@ abstract class CatalogITSupport {
 
 	ResultActions postEmpty(Session as, String path) throws Exception {
 		return mvc.perform(post(path).header("Authorization", as.bearer()));
+	}
+
+	/** Creates a product over HTTP and returns its id. */
+	UUID createProduct(Session as, String sku, String name, String unit) throws Exception {
+		String body = postJson(as, "/api/products",
+				"{\"sku\": \"%s\", \"name\": \"%s\", \"unit\": \"%s\"}".formatted(sku, name, unit))
+			.andExpect(status().isCreated())
+			.andReturn()
+			.getResponse()
+			.getContentAsString();
+		return UUID.fromString(JsonPath.read(body, "$.id"));
 	}
 
 	UUID createCategory(Session as, String name) throws Exception {

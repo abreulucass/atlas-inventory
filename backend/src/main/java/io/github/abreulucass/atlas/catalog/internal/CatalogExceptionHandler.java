@@ -12,19 +12,25 @@ import io.github.abreulucass.atlas.catalog.CategoryArchivedException;
 import io.github.abreulucass.atlas.catalog.CategoryNotFoundException;
 import io.github.abreulucass.atlas.catalog.DuplicateCategoryNameException;
 import io.github.abreulucass.atlas.catalog.InvalidCategoryIdException;
+import io.github.abreulucass.atlas.catalog.DuplicateSkuException;
 import io.github.abreulucass.atlas.catalog.InvalidNameException;
+import io.github.abreulucass.atlas.catalog.InvalidProductException;
+import io.github.abreulucass.atlas.catalog.InvalidSkuException;
+import io.github.abreulucass.atlas.catalog.InvalidUnitException;
+import io.github.abreulucass.atlas.catalog.ProductNotFoundException;
 
 /** Validation and body-parsing errors (400) come from the base class, all as {@code ProblemDetail}. */
-@RestControllerAdvice(assignableTypes = CategoryController.class)
+@RestControllerAdvice(assignableTypes = { CategoryController.class, ProductController.class })
 class CatalogExceptionHandler extends ResponseEntityExceptionHandler {
 
-	@ExceptionHandler({ InvalidNameException.class, InvalidCategoryIdException.class })
+	@ExceptionHandler({ InvalidNameException.class, InvalidCategoryIdException.class, InvalidSkuException.class,
+			InvalidUnitException.class, InvalidProductException.class })
 	ProblemDetail badRequest(RuntimeException e) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
 	}
 
-	@ExceptionHandler({ DuplicateCategoryNameException.class, CategoryArchivedException.class,
-			OrganizationArchivedException.class })
+	@ExceptionHandler({ DuplicateCategoryNameException.class, DuplicateSkuException.class,
+			CategoryArchivedException.class, OrganizationArchivedException.class })
 	ProblemDetail conflict(RuntimeException e) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
 	}
@@ -34,7 +40,7 @@ class CatalogExceptionHandler extends ResponseEntityExceptionHandler {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, e.getMessage());
 	}
 
-	@ExceptionHandler(CategoryNotFoundException.class)
+	@ExceptionHandler({ CategoryNotFoundException.class, ProductNotFoundException.class })
 	ProblemDetail notFound(RuntimeException e) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
 	}
