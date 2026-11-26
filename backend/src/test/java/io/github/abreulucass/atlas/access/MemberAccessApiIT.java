@@ -15,6 +15,8 @@ import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.SingleConnectionDataSource;
 import org.springframework.test.web.servlet.ResultActions;
 
 import com.jayway.jsonpath.JsonPath;
@@ -153,7 +155,22 @@ class MemberAccessApiIT extends AccessITSupport {
 		UUID warehouseId = warehouse(owner, companyId);
 		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated());
 		grantWarehouseAs(owner, member.userId(), warehouseId).andExpect(status().isCreated());
-		var before = grantRows(owner.organizationId());
+		// fixed ids the lenient parser reads from the short forms below: 1-1-1-1-1 is aliasUser, and so on
+		UUID tenant = owner.organizationId();
+		UUID aliasUser = UUID.fromString("00000001-0001-0001-0001-000000000001");
+		UUID aliasCompany = UUID.fromString("00000002-0002-0002-0002-000000000002");
+		UUID aliasWarehouse = UUID.fromString("00000003-0003-0003-0003-000000000003");
+		seedAsOwner(tenant, "insert into users (id, name, email, password_hash, created_at) values (?, 'Alias', ?, 'x', now())",
+				aliasUser, aliasUser + "@example.com");
+		seedAsOwner(tenant, "insert into memberships (id, user_id, organization_id, role, created_at) values (?, ?, ?, 'MEMBER', now())",
+				UUID.randomUUID(), aliasUser, tenant);
+		seedAsOwner(tenant, "insert into companies (id, tenant_id, name) values (?, ?, 'Alias')", aliasCompany, tenant);
+		seedAsOwner(tenant, "insert into warehouses (id, tenant_id, company_id, name, code) values (?, ?, ?, 'Alias', 'AL')",
+				aliasWarehouse, tenant, aliasCompany);
+		seedGrant(tenant, "00000004-0004-0004-0004-000000000004", aliasUser, aliasCompany, null);
+		seedGrant(tenant, "00000005-0005-0005-0005-000000000005", aliasUser, aliasCompany, aliasWarehouse);
+		var before = grantRows(tenant);
+		var membershipsBefore = memberships(tenant);
 
 		for (String bad : List.of("1-1-1-1-1", "1-1-1-1-" + "1".repeat(12), member.userId() + "0",
 				member.userId().toString().replace("-", ""), " " + member.userId())) {
@@ -172,8 +189,48 @@ class MemberAccessApiIT extends AccessITSupport {
 		}
 		removeAs(owner, "1-1-1-1-1").andExpect(status().isNotFound());
 
-		assertThat(grantRows(owner.organizationId())).isEqualTo(before);
+		// short forms of the seeded rows: the path must not resolve them, and the body must refuse them
+		String shortUser = "1-1-1-1-1";
+		String shortCompany = "2-2-2-2-2";
+		String shortWarehouse = "3-3-3-3-3";
+		grantCompanyAs(owner, shortUser, companyId).andExpect(status().isNotFound());
+		readAs(owner, shortUser).andExpect(status().isNotFound());
+		revokeCompanyAs(owner, shortUser, shortCompany).andExpect(status().isNotFound());
+		revokeWarehouseAs(owner, shortUser, shortWarehouse).andExpect(status().isNotFound());
+		grantAs(owner, member.userId(), "{\"companyId\": \"%s\"}".formatted(shortCompany))
+			.andExpect(status().isBadRequest());
+		grantAs(owner, member.userId(), "{\"warehouseId\": \"%s\"}".formatted(shortWarehouse))
+			.andExpect(status().isBadRequest());
+
+		assertThat(grantRows(tenant)).isEqualTo(before);
+		assertThat(memberships(tenant)).isEqualTo(membershipsBefore);
 		assertThat(list(readAs(owner, member.userId().toString().toUpperCase()))).hasSize(2);
+	}
+
+	/** Fixture SQL as the owner inside the tenant, for rows with fixed ids. */
+	void seedAsOwner(UUID tenant, String sql, Object... args) {
+		SingleConnectionDataSource connection = new SingleConnectionDataSource(url, ownerUser, ownerPassword, true);
+		try {
+			JdbcTemplate owner = new JdbcTemplate(connection);
+			owner.queryForObject("select set_config('app.tenant_id', ?, false)", String.class, tenant.toString());
+			owner.update(sql, args);
+		}
+		finally {
+			connection.destroy();
+		}
+	}
+
+	List<Map<String, Object>> memberships(UUID tenant) {
+		SingleConnectionDataSource connection = new SingleConnectionDataSource(url, ownerUser, ownerPassword, true);
+		try {
+			JdbcTemplate owner = new JdbcTemplate(connection);
+			owner.queryForObject("select set_config('app.tenant_id', ?, false)", String.class, tenant.toString());
+			return owner.queryForList("select id, user_id, role from memberships where organization_id = ? order by id",
+					tenant);
+		}
+		finally {
+			connection.destroy();
+		}
 	}
 
 	/** C34: a MEMBER's own id is compared by value, whatever its letter case. */
