@@ -3,6 +3,7 @@ package io.github.abreulucass.atlas;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.util.HashSet;
@@ -44,7 +45,8 @@ class ApiDocsIT {
 	RequestMappingHandlerMapping handlerMapping;
 
 	DocumentContext docs() throws Exception {
-		String body = mvc.perform(get("/v3/api-docs")).andExpect(status().isOk()).andReturn().getResponse()
+		String body = mvc.perform(get("/v3/api-docs")).andExpect(status().isOk())
+			.andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON)).andReturn().getResponse()
 			.getContentAsString();
 		return JsonPath.using(Configuration.defaultConfiguration().addOptions(Option.SUPPRESS_EXCEPTIONS)).parse(body);
 	}
@@ -53,6 +55,10 @@ class ApiDocsIT {
 	void apiDocsArePublicWhenEnabled() throws Exception {
 		DocumentContext doc = docs();
 		assertThat(doc.read("$.openapi", String.class)).startsWith("3.");
+		assertThat(doc.read("$.info.title", String.class)).isNotBlank();
+		assertThat(doc.read("$.info.version", String.class)).isNotBlank();
+		java.util.Map<String, Object> paths = doc.read("$.paths");
+		assertThat(paths).isNotEmpty().containsKeys("/api/products", "/api/auth/login");
 	}
 
 	@Test
@@ -61,7 +67,15 @@ class ApiDocsIT {
 			.getResponse().getRedirectedUrl();
 		String page = mvc.perform(get(location)).andExpect(status().isOk()).andReturn().getResponse()
 			.getContentAsString();
-		assertThat(page).contains("Swagger UI");
+		assertThat(page).contains("Swagger UI").contains("swagger-initializer.js");
+		String initializer = mvc.perform(get("/swagger-ui/swagger-initializer.js")).andExpect(status().isOk())
+			.andReturn().getResponse().getContentAsString();
+		assertThat(initializer).contains("SwaggerUIBundle");
+		String config = mvc.perform(get("/v3/api-docs/swagger-config")).andExpect(status().isOk()).andReturn()
+			.getResponse().getContentAsString();
+		String url = JsonPath.read(config, "$.url");
+		assertThat(url).isEqualTo("/v3/api-docs");
+		mvc.perform(get(url)).andExpect(status().isOk());
 	}
 
 	@Test
@@ -94,22 +108,29 @@ class ApiDocsIT {
 		assertThat(doc.read("$.components.securitySchemes.bearerAuth.type", String.class)).isEqualTo("http");
 		assertThat(doc.read("$.components.securitySchemes.bearerAuth.scheme", String.class)).isEqualTo("bearer");
 		java.util.Map<String, java.util.Map<String, java.util.Map<String, Object>>> paths = doc.read("$.paths");
+		List<Object> bearer = List.of(java.util.Map.of("bearerAuth", List.of()));
+		assertThat(doc.read("$.security", List.class)).isEqualTo(bearer);
 		int protectedOps = 0;
+		int publicOps = 0;
 		for (var path : paths.entrySet()) {
 			for (var op : path.getValue().entrySet()) {
-				List<?> security = (List<?>) op.getValue().get("security");
+				String name = op.getKey() + " " + path.getKey();
 				boolean open = PUBLIC_AUTH.contains(path.getKey()) && op.getKey().equals("post");
 				if (open) {
-					assertThat(security).as(path.getKey()).isNullOrEmpty();
+					publicOps++;
+					// present and empty: absent would inherit the global bearer requirement
+					assertThat(op.getValue()).as(name).containsKey("security");
+					assertThat((List<?>) op.getValue().get("security")).as(name).isEmpty();
 				}
 				else if (path.getKey().startsWith("/api")) {
 					protectedOps++;
-					// global requirement or an explicit per-operation one
-					List<?> effective = security != null ? security : doc.read("$.security");
-					assertThat(effective.toString()).as(op.getKey() + " " + path.getKey()).contains("bearerAuth");
+					Object security = op.getValue().get("security");
+					assertThat(security == null ? doc.read("$.security", List.class) : security).as(name)
+						.isEqualTo(bearer);
 				}
 			}
 		}
+		assertThat(publicOps).isEqualTo(PUBLIC_AUTH.size());
 		assertThat(protectedOps).isPositive();
 	}
 
@@ -130,8 +151,10 @@ class ApiDocsIT {
 		assertBody(doc, "/api/products", "post", List.of("sku", "name", "unit", "categoryId"),
 				List.of("sku", "name", "unit"));
 		assertBody(doc, "/api/products/{id}", "patch", List.of("version", "name", "categoryId"), List.of("version"));
+		assertAlternatives(doc, "ProductUpdateBody", "anyOf", List.of(List.of("name"), List.of("categoryId")));
 		assertBody(doc, "/api/categories", "post", List.of("name"), List.of("name"));
 		assertBody(doc, "/api/members/{userId}/access", "post", List.of("companyId", "warehouseId"), List.of());
+		assertAlternatives(doc, "GrantBody", "oneOf", List.of(List.of("companyId"), List.of("warehouseId")));
 		assertBody(doc, "/api/companies/{companyId}/warehouses/{warehouseId}/movements", "post",
 				List.of("type", "productId", "quantity", "note"), List.of("type", "productId", "quantity"));
 		assertBody(doc, "/api/transfers", "post", List.of("fromWarehouseId", "toWarehouseId", "note", "items"),
@@ -140,6 +163,9 @@ class ApiDocsIT {
 				String.class)).isEqualTo("#/components/schemas/TransferBody");
 		assertThat(doc.read("$.components.schemas.TransferBody.properties.items.items.$ref", String.class))
 			.isEqualTo("#/components/schemas/TransferItemBody");
+		assertThat(doc.read("$.components.schemas.TransferBody.properties.items.type", String.class))
+			.isEqualTo("array");
+		assertThat(doc.read("$.components.schemas.TransferItemBody.type", String.class)).isEqualTo("object");
 		assertThat(doc.read("$.components.schemas.TransferItemBody.required", List.class))
 			.containsExactlyInAnyOrder("productId", "quantity");
 	}
@@ -150,9 +176,23 @@ class ApiDocsIT {
 				String.class);
 		String schema = ref.substring(ref.lastIndexOf('/') + 1);
 		java.util.Map<String, Object> props = doc.read("$.components.schemas." + schema + ".properties");
+		assertThat(doc.read("$.components.schemas." + schema + ".type", String.class)).as(path).isEqualTo("object");
 		assertThat(props.keySet()).as(path).containsExactlyInAnyOrderElementsOf(properties);
 		List<String> req = doc.read("$.components.schemas." + schema + ".required");
 		assertThat(req == null ? List.of() : req).as(path).containsExactlyInAnyOrderElementsOf(required);
+	}
+
+	/** Each alternative schema is an object whose own required list is exactly one of the expected sets. */
+	private static void assertAlternatives(DocumentContext doc, String schema, String keyword,
+			List<List<String>> expected) {
+		List<String> refs = doc.read("$.components.schemas." + schema + "." + keyword + "[*].$ref");
+		List<List<String>> actual = new java.util.ArrayList<>();
+		for (String ref : refs) {
+			String alt = ref.substring(ref.lastIndexOf('/') + 1);
+			assertThat(doc.read("$.components.schemas." + alt + ".type", String.class)).as(alt).isEqualTo("object");
+			actual.add(doc.read("$.components.schemas." + alt + ".required"));
+		}
+		assertThat(actual).containsExactlyInAnyOrderElementsOf(expected);
 	}
 
 	@Test
