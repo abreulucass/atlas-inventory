@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import io.github.abreulucass.atlas.access.CurrentUser;
 import io.github.abreulucass.atlas.access.Organizations;
+import io.github.abreulucass.atlas.access.Permissions;
 import io.github.abreulucass.atlas.access.TenantContext;
 import io.github.abreulucass.atlas.catalog.ProductView;
 import io.github.abreulucass.atlas.catalog.Products;
@@ -58,8 +59,12 @@ public class Transfers {
 
 	private final Products products;
 
+	private final Permissions permissions;
+
 	Transfers(TransferRepository transfers, MovementRepository movements, BalanceRepository balances,
-			Organizations organizations, Companies companies, Warehouses warehouses, Products products) {
+			Organizations organizations, Companies companies, Warehouses warehouses, Products products,
+			Permissions permissions) {
+		this.permissions = permissions;
 		this.transfers = transfers;
 		this.movements = movements;
 		this.balances = balances;
@@ -154,6 +159,20 @@ public class Transfers {
 			}
 		}
 		return view;
+	}
+
+	/** 404 when malformed, unknown, or when the caller sees neither warehouse; archived resources stay readable. */
+	@Transactional(readOnly = true)
+	public TransferView find(String id) {
+		UUID tenant = TenantContext.require();
+		UUID transfer = StockIds.parse(id);
+		var visibility = permissions.visibility();
+		return (transfer == null ? java.util.Optional.<TransferRepository.Found>empty()
+				: transfers.findById(tenant, transfer))
+			.filter(f -> visibility.seesWarehouse(f.fromCompanyId(), f.view().fromWarehouseId())
+					|| visibility.seesWarehouse(f.toCompanyId(), f.view().toWarehouseId()))
+			.map(TransferRepository.Found::view)
+			.orElseThrow(() -> new StockNotFoundException("Transfer not found: " + id));
 	}
 
 	/** Same warehouses, note and set of (product, numerically equal quantity), in any item order. */

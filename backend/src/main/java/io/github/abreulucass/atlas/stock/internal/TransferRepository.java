@@ -62,6 +62,36 @@ public class TransferRepository {
 	private record Header(UUID id, UUID from, UUID to, @Nullable String note, UUID createdBy, OffsetDateTime createdAt) {
 	}
 
+	/** A stored transfer with the companies of its two warehouses, for visibility checks. */
+	public record Found(TransferView view, UUID fromCompanyId, UUID toCompanyId) {
+	}
+
+	public Optional<Found> findById(UUID tenant, UUID id) {
+		return jdbc.sql("""
+				select from_company_id, to_company_id from stock_transfers where tenant_id = :t and id = :id""")
+			.param("t", tenant)
+			.param("id", id)
+			.query((rs, i) -> new UUID[] { rs.getObject("from_company_id", UUID.class),
+					rs.getObject("to_company_id", UUID.class) })
+			.optional()
+			.flatMap(c -> load(tenant, Optional.of(header(tenant, id))).map(v -> new Found(v, c[0], c[1])));
+	}
+
+	private Header header(UUID tenant, UUID id) {
+		return jdbc.sql("""
+				select id, from_warehouse_id, to_warehouse_id, note, created_by, created_at from stock_transfers
+				where tenant_id = :t and id = :id""")
+			.param("t", tenant)
+			.param("id", id)
+			.query(HEADER)
+			.single();
+	}
+
+	private static final org.springframework.jdbc.core.RowMapper<Header> HEADER = (rs, i) -> new Header(
+			rs.getObject("id", UUID.class), rs.getObject("from_warehouse_id", UUID.class),
+			rs.getObject("to_warehouse_id", UUID.class), rs.getString("note"), rs.getObject("created_by", UUID.class),
+			rs.getObject("created_at", OffsetDateTime.class));
+
 	/** The transfer recorded with this idempotency key in the tenant, if any. */
 	public Optional<TransferView> findByKey(UUID tenant, String key) {
 		return load(tenant, jdbc.sql("""
@@ -69,9 +99,7 @@ public class TransferRepository {
 				where tenant_id = :t and idempotency_key = :key""")
 			.param("t", tenant)
 			.param("key", key)
-			.query((rs, i) -> new Header(rs.getObject("id", UUID.class), rs.getObject("from_warehouse_id", UUID.class),
-					rs.getObject("to_warehouse_id", UUID.class), rs.getString("note"),
-					rs.getObject("created_by", UUID.class), rs.getObject("created_at", OffsetDateTime.class)))
+			.query(HEADER)
 			.optional());
 	}
 

@@ -4,6 +4,8 @@ import java.net.URI;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -28,6 +30,11 @@ class TransferController {
 			@RequestBody(required = false) @Nullable String body) {
 		TransferView view = transfers.record(key, body);
 		return ResponseEntity.created(URI.create("/api/transfers/" + view.id())).body(view);
+	}
+
+	@GetMapping("/{id}")
+	TransferView find(@PathVariable String id) {
+		return transfers.find(id);
 	}
 
 }
