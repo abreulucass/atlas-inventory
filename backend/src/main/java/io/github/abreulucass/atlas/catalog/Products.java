@@ -9,6 +9,7 @@ import java.util.UUID;
 import org.jspecify.annotations.Nullable;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
@@ -76,6 +77,46 @@ public class Products {
 	public ProductView find(String id) {
 		TenantContext.require();
 		return view(get(id));
+	}
+
+	/**
+	 * Edits name and/or category with the version the client read. The version is compared first so a stale client
+	 * never touches the row; the flush inside the method turns a concurrent winner into a {@code 409} before commit.
+	 */
+	@Transactional
+	public ProductView update(String id, @Nullable String body) {
+		requireWritable();
+		Product product = get(id);
+		JsonNode json = readBody(body);
+		if (json.has("sku") || json.has("unit")) {
+			throw new InvalidProductException("sku and unit cannot be changed");
+		}
+		JsonNode version = json.get("version");
+		if (version == null || !version.isIntegralNumber() || !version.canConvertToLong()) {
+			throw new InvalidProductException("version is required and must be an integer");
+		}
+		if (!json.has("name") && !json.has("categoryId")) {
+			throw new InvalidProductException("Send name, categoryId or both");
+		}
+		String name = json.has("name") ? name(text(json, "name")) : null;
+		UUID categoryId = json.has("categoryId") ? categoryId(json) : product.getCategoryId();
+		if (product.isArchived()) {
+			throw new ProductArchivedException(product.getId());
+		}
+		if (product.getVersion() != version.longValue()) {
+			throw new StaleProductVersionException(product.getId());
+		}
+		if (name != null) {
+			product.rename(name);
+		}
+		product.moveTo(categoryId);
+		try {
+			repository.flush();
+		}
+		catch (ObjectOptimisticLockingFailureException e) {
+			throw new StaleProductVersionException(product.getId());
+		}
+		return view(product);
 	}
 
 	/**

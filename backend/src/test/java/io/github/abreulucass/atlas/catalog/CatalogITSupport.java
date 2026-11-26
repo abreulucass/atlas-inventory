@@ -1,6 +1,7 @@
 package io.github.abreulucass.atlas.catalog;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -139,6 +140,12 @@ abstract class CatalogITSupport {
 
 	ResultActions getAs(Session as, String path) throws Exception {
 		return mvc.perform(get(path).header("Authorization", as.bearer()));
+	}
+
+	ResultActions patchJson(Session as, String path, String json) throws Exception {
+		return mvc.perform(patch(path).header("Authorization", as.bearer())
+			.contentType(MediaType.APPLICATION_JSON)
+			.content(json));
 	}
 
 	ResultActions postEmpty(Session as, String path) throws Exception {

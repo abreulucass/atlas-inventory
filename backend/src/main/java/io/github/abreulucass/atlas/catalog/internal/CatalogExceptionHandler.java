@@ -18,7 +18,9 @@ import io.github.abreulucass.atlas.catalog.InvalidNameException;
 import io.github.abreulucass.atlas.catalog.InvalidProductException;
 import io.github.abreulucass.atlas.catalog.InvalidSkuException;
 import io.github.abreulucass.atlas.catalog.InvalidUnitException;
+import io.github.abreulucass.atlas.catalog.ProductArchivedException;
 import io.github.abreulucass.atlas.catalog.ProductNotFoundException;
+import io.github.abreulucass.atlas.catalog.StaleProductVersionException;
 
 /** Validation and body-parsing errors (400) come from the base class, all as {@code ProblemDetail}. */
 @RestControllerAdvice(assignableTypes = { CategoryController.class, ProductController.class })
@@ -31,7 +33,8 @@ class CatalogExceptionHandler extends ResponseEntityExceptionHandler {
 	}
 
 	@ExceptionHandler({ DuplicateCategoryNameException.class, DuplicateSkuException.class,
-			CategoryArchivedException.class, OrganizationArchivedException.class })
+			CategoryArchivedException.class, ProductArchivedException.class, StaleProductVersionException.class,
+			OrganizationArchivedException.class })
 	ProblemDetail conflict(RuntimeException e) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
 	}
