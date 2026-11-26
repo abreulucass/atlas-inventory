@@ -10,8 +10,10 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.github.abreulucass.atlas.catalog.ProductPage;
 import io.github.abreulucass.atlas.catalog.ProductView;
 import io.github.abreulucass.atlas.catalog.Products;
 
@@ -23,6 +25,14 @@ class ProductController {
 
 	ProductController(Products products) {
 		this.products = products;
+	}
+
+	@GetMapping
+	ProductPage list(@RequestParam(required = false) @Nullable String page,
+			@RequestParam(required = false) @Nullable String size, @RequestParam(required = false) @Nullable String q,
+			@RequestParam(required = false) @Nullable String categoryId,
+			@RequestParam(required = false) @Nullable String status) {
+		return products.list(page, size, q, categoryId, status);
 	}
 
 	@GetMapping("/{id}")

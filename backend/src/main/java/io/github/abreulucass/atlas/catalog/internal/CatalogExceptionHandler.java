@@ -13,6 +13,7 @@ import io.github.abreulucass.atlas.catalog.CategoryNotFoundException;
 import io.github.abreulucass.atlas.catalog.DuplicateCategoryNameException;
 import io.github.abreulucass.atlas.catalog.InvalidCategoryIdException;
 import io.github.abreulucass.atlas.catalog.DuplicateSkuException;
+import io.github.abreulucass.atlas.catalog.InvalidListParameterException;
 import io.github.abreulucass.atlas.catalog.InvalidNameException;
 import io.github.abreulucass.atlas.catalog.InvalidProductException;
 import io.github.abreulucass.atlas.catalog.InvalidSkuException;
@@ -24,7 +25,7 @@ import io.github.abreulucass.atlas.catalog.ProductNotFoundException;
 class CatalogExceptionHandler extends ResponseEntityExceptionHandler {
 
 	@ExceptionHandler({ InvalidNameException.class, InvalidCategoryIdException.class, InvalidSkuException.class,
-			InvalidUnitException.class, InvalidProductException.class })
+			InvalidUnitException.class, InvalidProductException.class, InvalidListParameterException.class })
 	ProblemDetail badRequest(RuntimeException e) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, e.getMessage());
 	}

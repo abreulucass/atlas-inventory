@@ -1,11 +1,16 @@
 package io.github.abreulucass.atlas.catalog;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -71,6 +76,86 @@ public class Products {
 	public ProductView find(String id) {
 		TenantContext.require();
 		return view(get(id));
+	}
+
+	/**
+	 * A page of the catalog. Parameters arrive as text so that any out-of-range value answers {@code 400}; Spring's
+	 * {@code Pageable} binding would clamp them instead.
+	 */
+	@Transactional(readOnly = true)
+	public ProductPage list(@Nullable String page, @Nullable String size, @Nullable String q,
+			@Nullable String categoryId, @Nullable String status) {
+		TenantContext.require();
+		int pageNumber = number(page, "page", 0, 0, Integer.MAX_VALUE);
+		int pageSize = number(size, "size", 20, 1, 100);
+		String filter = status == null ? "ACTIVE" : status;
+		if (!List.of("ACTIVE", "ARCHIVED", "ALL").contains(filter)) {
+			throw new InvalidListParameterException("status must be ACTIVE, ARCHIVED or ALL");
+		}
+		@Nullable UUID category = null;
+		if (categoryId != null) {
+			category = CatalogIds.parse(categoryId);
+			if (category == null) {
+				throw new InvalidListParameterException("categoryId must be a UUID");
+			}
+		}
+		Specification<Product> where = matching(filter, category, q == null ? "" : q.strip());
+		long totalItems;
+		List<ProductView> items = List.of();
+		if ((long) pageNumber * pageSize > Integer.MAX_VALUE) {
+			// past any real catalog, and beyond the int offset of the query
+			totalItems = repository.count(where);
+		}
+		else {
+			var found = repository.findAll(where, PageRequest.of(pageNumber, pageSize));
+			totalItems = found.getTotalElements();
+			items = found.getContent().stream().map(Products::view).toList();
+		}
+		return new ProductPage(items, pageNumber, pageSize, totalItems, (int) ((totalItems + pageSize - 1) / pageSize));
+	}
+
+	private static int number(@Nullable String text, String name, int fallback, int min, int max) {
+		if (text == null) {
+			return fallback;
+		}
+		try {
+			int value = Integer.parseInt(text);
+			if (value >= min && value <= max) {
+				return value;
+			}
+		}
+		catch (NumberFormatException e) {
+			// falls through to the invalid parameter below
+		}
+		throw new InvalidListParameterException(name + " must be an integer from " + min + " to " + max);
+	}
+
+	private static Specification<Product> matching(String status, @Nullable UUID categoryId, String q) {
+		return (root, query, cb) -> {
+			var filters = new ArrayList<jakarta.persistence.criteria.Predicate>();
+			if (status.equals("ACTIVE")) {
+				filters.add(cb.isNull(root.get("archivedAt")));
+			}
+			else if (status.equals("ARCHIVED")) {
+				filters.add(cb.isNotNull(root.get("archivedAt")));
+			}
+			if (categoryId != null) {
+				filters.add(cb.equal(root.get("categoryId"), categoryId));
+			}
+			if (!q.isEmpty()) {
+				// shortcut: a leading-wildcard LIKE on the name cannot use a btree index, so each search scans the tenant's products; add a pg_trgm GIN index when a catalog passes ~100k rows
+				filters.add(cb.or(
+						cb.like(cb.lower(root.get("name")), "%" + escape(q.toLowerCase(Locale.ROOT)) + "%", '\\'),
+						cb.like(root.get("sku"), escape(q.toUpperCase(Locale.ROOT)) + "%", '\\')));
+			}
+			query.orderBy(cb.asc(cb.lower(root.get("name"))), cb.asc(root.get("id")));
+			return cb.and(filters.toArray(jakarta.persistence.criteria.Predicate[]::new));
+		};
+	}
+
+	/** Makes {@code \}, {@code %} and {@code _} match themselves in a LIKE pattern. */
+	private static String escape(String text) {
+		return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
 	}
 
 	private void requireWritable() {
