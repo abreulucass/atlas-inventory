@@ -63,6 +63,10 @@ class MovementRequestTest {
 		refuses(body("\"IN\"", "1000000000.001", null));
 		refuses(body("\"ADJUSTMENT\"", "-1000000000.001", "\"x\""));
 		refuses(body("\"IN\"", "1e400", null));
+		// the decimal conversion or normalization itself overflows
+		refuses(body("\"IN\"", "100e2147483647", null));
+		refuses(body("\"ADJUSTMENT\"", "-100e2147483647", "\"x\""));
+		refuses(body("\"IN\"", "1e-2147483648", null));
 	}
 
 	@Test
@@ -140,6 +144,7 @@ class MovementRequestTest {
 	@Test
 	void nonStringNoteIsRefused() {
 		refuses(body("\"IN\"", "1", "5"));
+		refuses(body("\"IN\"", "1", "\"a\\u0000b\""));
 	}
 
 	@Test

@@ -57,7 +57,13 @@ public record MovementRequest(MovementType type, String productId, BigDecimal de
 		if (node == null || !node.isNumber()) {
 			throw new InvalidMovementException("quantity is required and must be a number");
 		}
-		BigDecimal quantity = node.decimalValue().stripTrailingZeros();
+		BigDecimal quantity;
+		try {
+			quantity = node.decimalValue().stripTrailingZeros();
+		}
+		catch (ArithmeticException | NumberFormatException e) {
+			throw new InvalidMovementException("quantity must be a representable decimal number");
+		}
 		if (quantity.signum() == 0 || quantity.abs().compareTo(MAX_QUANTITY) > 0) {
 			throw new InvalidMovementException("quantity must be non-zero and at most 1000000000 in absolute value");
 		}
@@ -78,6 +84,9 @@ public record MovementRequest(MovementType type, String productId, BigDecimal de
 			throw new InvalidMovementException("note must be a string");
 		}
 		String note = node.asString().strip();
+		if (note.indexOf('\u0000') >= 0) {
+			throw new InvalidMovementException("note must not contain NUL");
+		}
 		if (note.codePointCount(0, note.length()) > MAX_NOTE) {
 			throw new InvalidMovementException("note has at most " + MAX_NOTE + " characters");
 		}
@@ -91,7 +100,7 @@ public record MovementRequest(MovementType type, String productId, BigDecimal de
 				return json;
 			}
 		}
-		catch (JacksonException e) {
+		catch (JacksonException | ArithmeticException | NumberFormatException e) {
 			// falls through to the invalid request below
 		}
 		throw new InvalidMovementException("Body must be a JSON object");

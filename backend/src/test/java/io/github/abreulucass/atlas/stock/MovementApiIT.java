@@ -165,6 +165,8 @@ class MovementApiIT extends StockITSupport {
 		refused(s, 400, move("ADJUSTMENT", s.product(), 0, "zero"));
 		refused(s, 400, move("IN", s.product(), "1000000000.001", null));
 		refused(s, 400, move("ADJUSTMENT", s.product(), "-1000000000.001", "big"));
+		refused(s, 400, move("IN", s.product(), "100e2147483647", null));
+		refused(s, 400, move("ADJUSTMENT", s.product(), "-100e2147483647", "huge"));
 		String body = record(s.owner(), s.path(), move("IN", s.product(), 1000000000, null));
 		assertThat(number(body, "$.balanceAfter")).isEqualByComparingTo("1000000000");
 	}
@@ -216,6 +218,8 @@ class MovementApiIT extends StockITSupport {
 
 		refused(s, 400, move("IN", s.product(), 1, "a".repeat(501)));
 		refused(s, 400, move("IN", s.product(), 1, "  " + "a".repeat(501)));
+		// an escaped NUL cannot be stored in PostgreSQL text
+		refused(s, 400, move("IN", s.product(), 1, "a\\u0000b"));
 		String body = record(s.owner(), s.path(), move("IN", s.product(), 1, "a".repeat(500)));
 		assertThat((String) JsonPath.read(body, "$.note")).hasSize(500);
 	}
