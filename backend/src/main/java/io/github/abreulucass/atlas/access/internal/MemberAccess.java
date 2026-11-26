@@ -98,6 +98,33 @@ class MemberAccess {
 		return view(company, warehouse);
 	}
 
+	@Transactional
+	void revokeCompany(String id, String companyId) {
+		revoke(id, companyId, "delete from member_access where user_id = ? and company_id = ? and warehouse_id is null");
+	}
+
+	@Transactional
+	void revokeWarehouse(String id, String warehouseId) {
+		revoke(id, warehouseId, "delete from member_access where user_id = ? and warehouse_id = ?");
+	}
+
+	private void revoke(String id, String targetId, String delete) {
+		UUID organizationId = TenantContext.require();
+		members.lockAndRequireManager(organizationId);
+		organizations.requireWritable(organizationId);
+		UUID userId = requireMember(id, organizationId);
+		UUID target;
+		try {
+			target = UUID.fromString(targetId);
+		}
+		catch (IllegalArgumentException e) {
+			throw new GrantNotFoundException();
+		}
+		if (jdbc.sql(delete).params(userId, target).update() == 0) {
+			throw new GrantNotFoundException();
+		}
+	}
+
 	private UUID requireMember(String id, UUID organizationId) {
 		UUID userId = Members.parseUserId(id);
 		memberships.findByUserIdAndOrganizationId(userId, organizationId).orElseThrow(MemberNotFoundException::new);

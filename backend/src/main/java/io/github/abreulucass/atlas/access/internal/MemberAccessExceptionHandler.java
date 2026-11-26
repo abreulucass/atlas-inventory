@@ -23,7 +23,8 @@ class MemberAccessExceptionHandler extends ResponseEntityExceptionHandler {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.FORBIDDEN, e.getMessage());
 	}
 
-	@ExceptionHandler({ MemberNotFoundException.class, GrantTargetNotFoundException.class })
+	@ExceptionHandler({ MemberNotFoundException.class, GrantTargetNotFoundException.class,
+			GrantNotFoundException.class })
 	ProblemDetail notFound(RuntimeException e) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
 	}

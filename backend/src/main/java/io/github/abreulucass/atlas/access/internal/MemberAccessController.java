@@ -5,6 +5,7 @@ import java.util.List;
 
 import org.jspecify.annotations.Nullable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -37,6 +38,18 @@ class MemberAccessController {
 		String target = grant.warehouseId() == null ? "companies/" + grant.companyId()
 				: "warehouses/" + grant.warehouseId();
 		return ResponseEntity.created(URI.create("/api/members/" + userId + "/access/" + target)).body(grant);
+	}
+
+	@DeleteMapping("/companies/{companyId}")
+	ResponseEntity<Void> revokeCompany(@PathVariable String userId, @PathVariable String companyId) {
+		access.revokeCompany(userId, companyId);
+		return ResponseEntity.noContent().build();
+	}
+
+	@DeleteMapping("/warehouses/{warehouseId}")
+	ResponseEntity<Void> revokeWarehouse(@PathVariable String userId, @PathVariable String warehouseId) {
+		access.revokeWarehouse(userId, warehouseId);
+		return ResponseEntity.noContent().build();
 	}
 
 }

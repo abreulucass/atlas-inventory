@@ -88,6 +88,8 @@ class MemberAccessApiIT extends AccessITSupport {
 
 		grantCompanyAs(member, other.userId(), company(owner)).andExpect(status().isForbidden());
 		grantWarehouseAs(member, member.userId(), warehouseId).andExpect(status().isForbidden());
+		revokeCompanyAs(member, other.userId(), companyId).andExpect(status().isForbidden());
+		revokeWarehouseAs(member, other.userId(), warehouseId).andExpect(status().isForbidden());
 
 		assertThat(grantRows(owner.organizationId())).isEqualTo(before);
 	}
@@ -152,6 +154,8 @@ class MemberAccessApiIT extends AccessITSupport {
 			grantCompanyAs(owner, userId, companyId).andExpect(status().isNotFound());
 			grantWarehouseAs(owner, userId, warehouseId).andExpect(status().isNotFound());
 			readAs(owner, userId).andExpect(status().isNotFound());
+			revokeCompanyAs(owner, userId, companyId).andExpect(status().isNotFound());
+			revokeWarehouseAs(owner, userId, warehouseId).andExpect(status().isNotFound());
 		}
 
 		assertThat(grantRows(owner.organizationId())).isEmpty();
@@ -170,6 +174,8 @@ class MemberAccessApiIT extends AccessITSupport {
 		archiveOrganization(owner.organizationId());
 
 		grantCompanyAs(owner, member.userId(), otherCompany).andExpect(status().isConflict());
+		revokeCompanyAs(owner, member.userId(), companyId).andExpect(status().isConflict());
+		revokeWarehouseAs(owner, member.userId(), warehouseId).andExpect(status().isConflict());
 
 		assertThat(grantRows(owner.organizationId())).isEqualTo(before);
 	}
@@ -231,6 +237,44 @@ class MemberAccessApiIT extends AccessITSupport {
 		assertThat(body(grantWarehouseAs(owner, member.userId(), archivedWarehouse).andExpect(status().isCreated())))
 			.isEqualTo(grant("WAREHOUSE", otherCompany, archivedWarehouse));
 		assertThat(grantRows(owner.organizationId())).hasSize(2);
+	}
+
+	@Test
+	void revokeReturns204() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "ADMIN");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		UUID warehouseId = warehouse(owner, companyId);
+		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated());
+		grantWarehouseAs(owner, member.userId(), warehouseId).andExpect(status().isCreated());
+
+		revokeCompanyAs(owner, member.userId(), companyId).andExpect(status().isNoContent());
+		assertThat(grantRows(owner.organizationId())).extracting(r -> r.get("warehouse_id"))
+			.containsExactly(warehouseId);
+		revokeWarehouseAs(admin, member.userId(), warehouseId).andExpect(status().isNoContent());
+
+		assertThat(grantRows(owner.organizationId())).isEmpty();
+		assertThat(list(readAs(owner, member.userId()))).isEmpty();
+	}
+
+	@Test
+	void revokeMissingGrantReturns404() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		UUID warehouseId = warehouse(owner, companyId);
+		// a company grant is not a grant of its warehouses, nor the other way round
+		grantWarehouseAs(owner, member.userId(), warehouseId).andExpect(status().isCreated());
+		var before = grantRows(owner.organizationId());
+
+		revokeCompanyAs(owner, member.userId(), companyId).andExpect(status().isNotFound());
+		revokeCompanyAs(owner, member.userId(), UUID.randomUUID()).andExpect(status().isNotFound());
+		revokeCompanyAs(owner, member.userId(), "not-a-uuid").andExpect(status().isNotFound());
+		revokeWarehouseAs(owner, member.userId(), UUID.randomUUID()).andExpect(status().isNotFound());
+		revokeWarehouseAs(owner, member.userId(), "not-a-uuid").andExpect(status().isNotFound());
+
+		assertThat(grantRows(owner.organizationId())).isEqualTo(before);
 	}
 
 	@Test
