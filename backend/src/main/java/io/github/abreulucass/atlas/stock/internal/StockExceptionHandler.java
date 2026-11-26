@@ -18,7 +18,7 @@ import io.github.abreulucass.atlas.stock.StockNotFoundException;
 import io.github.abreulucass.atlas.warehouse.WarehouseNotFoundException;
 
 /** Everything as {@code ProblemDetail}; body-parsing errors from the base class. */
-@RestControllerAdvice(assignableTypes = { MovementController.class })
+@RestControllerAdvice(assignableTypes = { MovementController.class, BalanceController.class })
 class StockExceptionHandler extends ResponseEntityExceptionHandler {
 
 	@ExceptionHandler({ InvalidIdempotencyKeyException.class, InvalidMovementException.class })

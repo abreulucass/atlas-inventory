@@ -1,6 +1,8 @@
 package io.github.abreulucass.atlas.stock.internal;
 
 import java.math.BigDecimal;
+import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,6 +17,31 @@ public class BalanceRepository {
 
 	BalanceRepository(JdbcClient jdbc) {
 		this.jdbc = jdbc;
+	}
+
+	public record Row(UUID productId, String sku, String unit, BigDecimal quantity, java.time.Instant updatedAt) {
+	}
+
+	public long count(UUID tenant, UUID warehouseId) {
+		return jdbc.sql("select count(*) from stock_balances where tenant_id = :t and warehouse_id = :w")
+			.param("t", tenant)
+			.param("w", warehouseId)
+			.query(Long.class)
+			.single();
+	}
+
+	public List<Row> page(UUID tenant, UUID warehouseId, int size, long offset) {
+		return jdbc.sql("""
+				select product_id, sku, unit, quantity, updated_at from stock_balances
+				where tenant_id = :t and warehouse_id = :w order by sku limit :size offset :offset""")
+			.param("t", tenant)
+			.param("w", warehouseId)
+			.param("size", size)
+			.param("offset", offset)
+			.query((rs, i) -> new Row(rs.getObject("product_id", UUID.class), rs.getString("sku"),
+					rs.getString("unit"), rs.getBigDecimal("quantity"),
+					rs.getObject("updated_at", OffsetDateTime.class).toInstant()))
+			.list();
 	}
 
 	/**
