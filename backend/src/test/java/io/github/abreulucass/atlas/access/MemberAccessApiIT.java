@@ -1,0 +1,248 @@
+package io.github.abreulucass.atlas.access;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.ResultActions;
+
+import com.jayway.jsonpath.JsonPath;
+
+class MemberAccessApiIT extends AccessITSupport {
+
+	static Map<String, Object> grant(String type, UUID companyId, UUID warehouseId) {
+		Map<String, Object> grant = new HashMap<>();
+		grant.put("type", type);
+		grant.put("companyId", companyId.toString());
+		grant.put("warehouseId", warehouseId == null ? null : warehouseId.toString());
+		return grant;
+	}
+
+	static Map<String, Object> body(ResultActions result) throws Exception {
+		return JsonPath.read(result.andReturn().getResponse().getContentAsString(), "$");
+	}
+
+	static List<Map<String, Object>> list(ResultActions result) throws Exception {
+		return JsonPath.read(result.andExpect(status().isOk()).andReturn().getResponse().getContentAsString(), "$");
+	}
+
+	@Test
+	void managersGrantCompany() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "ADMIN");
+		Session member = join(owner, "MEMBER");
+		UUID first = company(owner);
+		UUID second = company(owner);
+
+		ResultActions byOwner = grantCompanyAs(owner, member.userId(), first).andExpect(status().isCreated())
+			.andExpect(header().string("Location", "/api/members/" + member.userId() + "/access/companies/" + first));
+		ResultActions byAdmin = grantCompanyAs(admin, member.userId(), second).andExpect(status().isCreated())
+			.andExpect(header().string("Location", "/api/members/" + member.userId() + "/access/companies/" + second));
+
+		assertThat(body(byOwner)).isEqualTo(grant("COMPANY", first, null));
+		assertThat(body(byAdmin)).isEqualTo(grant("COMPANY", second, null));
+		assertThat(grantRows(owner.organizationId())).extracting(r -> r.get("company_id"))
+			.containsExactlyInAnyOrder(first, second);
+	}
+
+	@Test
+	void managersGrantWarehouse() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "ADMIN");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		UUID first = warehouse(owner, companyId);
+		UUID second = warehouse(owner, companyId);
+
+		ResultActions byOwner = grantWarehouseAs(owner, member.userId(), first).andExpect(status().isCreated())
+			.andExpect(header().string("Location", "/api/members/" + member.userId() + "/access/warehouses/" + first));
+		ResultActions byAdmin = grantWarehouseAs(admin, member.userId(), second).andExpect(status().isCreated());
+
+		assertThat(body(byOwner)).isEqualTo(grant("WAREHOUSE", companyId, first));
+		assertThat(body(byAdmin)).isEqualTo(grant("WAREHOUSE", companyId, second));
+		assertThat(grantRows(owner.organizationId())).extracting(r -> r.get("warehouse_id"))
+			.containsExactlyInAnyOrder(first, second);
+	}
+
+	@Test
+	void memberCannotGrantOrRevoke() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		Session other = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		UUID warehouseId = warehouse(owner, companyId);
+		grantCompanyAs(owner, other.userId(), companyId).andExpect(status().isCreated());
+		grantWarehouseAs(owner, other.userId(), warehouseId).andExpect(status().isCreated());
+		var before = grantRows(owner.organizationId());
+
+		grantCompanyAs(member, other.userId(), company(owner)).andExpect(status().isForbidden());
+		grantWarehouseAs(member, member.userId(), warehouseId).andExpect(status().isForbidden());
+
+		assertThat(grantRows(owner.organizationId())).isEqualTo(before);
+	}
+
+	@Test
+	void invalidGrantBodyReturns400() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		UUID warehouseId = warehouse(owner, companyId);
+
+		for (String json : List.of("{}", "{\"companyId\": null, \"warehouseId\": null}",
+				"{\"companyId\": \"%s\", \"warehouseId\": \"%s\"}".formatted(companyId, warehouseId),
+				"{\"companyId\": \"not-a-uuid\"}", "{\"warehouseId\": \"not-a-uuid\"}", "")) {
+			grantAs(owner, member.userId(), json).andExpect(status().isBadRequest());
+		}
+
+		assertThat(grantRows(owner.organizationId())).isEmpty();
+	}
+
+	@Test
+	void grantOtherTenantOrUnknownTargetReturns404() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		Session stranger = register("Sam");
+		UUID otherCompany = company(stranger);
+		UUID otherWarehouse = warehouse(stranger, otherCompany);
+
+		grantCompanyAs(owner, member.userId(), otherCompany).andExpect(status().isNotFound());
+		grantWarehouseAs(owner, member.userId(), otherWarehouse).andExpect(status().isNotFound());
+		grantCompanyAs(owner, member.userId(), UUID.randomUUID()).andExpect(status().isNotFound());
+		grantWarehouseAs(owner, member.userId(), UUID.randomUUID()).andExpect(status().isNotFound());
+
+		assertThat(grantRows(owner.organizationId())).isEmpty();
+		assertThat(grantRows(stranger.organizationId())).isEmpty();
+	}
+
+	@Test
+	void duplicateGrantReturns409() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		UUID warehouseId = warehouse(owner, companyId);
+		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated());
+		grantWarehouseAs(owner, member.userId(), warehouseId).andExpect(status().isCreated());
+		var before = grantRows(owner.organizationId());
+
+		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isConflict());
+		grantWarehouseAs(owner, member.userId(), warehouseId).andExpect(status().isConflict());
+
+		assertThat(grantRows(owner.organizationId())).isEqualTo(before);
+	}
+
+	@Test
+	void unknownOrOtherTenantMemberReturns404() throws Exception {
+		Session owner = register("Olga");
+		Session stranger = register("Sam");
+		UUID companyId = company(owner);
+		UUID warehouseId = warehouse(owner, companyId);
+
+		for (Object userId : List.of(stranger.userId(), UUID.randomUUID(), "not-a-uuid")) {
+			grantCompanyAs(owner, userId, companyId).andExpect(status().isNotFound());
+			grantWarehouseAs(owner, userId, warehouseId).andExpect(status().isNotFound());
+			readAs(owner, userId).andExpect(status().isNotFound());
+		}
+
+		assertThat(grantRows(owner.organizationId())).isEmpty();
+	}
+
+	@Test
+	void grantInArchivedOrganizationReturns409() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		UUID warehouseId = warehouse(owner, companyId);
+		UUID otherCompany = company(owner);
+		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated());
+		grantWarehouseAs(owner, member.userId(), warehouseId).andExpect(status().isCreated());
+		var before = grantRows(owner.organizationId());
+		archiveOrganization(owner.organizationId());
+
+		grantCompanyAs(owner, member.userId(), otherCompany).andExpect(status().isConflict());
+
+		assertThat(grantRows(owner.organizationId())).isEqualTo(before);
+	}
+
+	@Test
+	void managerReadsGrantsInOrder() throws Exception {
+		Session owner = register("Olga");
+		Session admin = join(owner, "ADMIN");
+		Session member = join(owner, "MEMBER");
+		UUID firstCompany = company(owner);
+		UUID secondCompany = company(owner);
+		UUID firstWarehouse = warehouse(owner, firstCompany);
+		UUID secondWarehouse = warehouse(owner, secondCompany);
+		grantWarehouseAs(owner, member.userId(), firstWarehouse).andExpect(status().isCreated());
+		grantCompanyAs(owner, member.userId(), firstCompany).andExpect(status().isCreated());
+		grantWarehouseAs(owner, member.userId(), secondWarehouse).andExpect(status().isCreated());
+		grantCompanyAs(owner, member.userId(), secondCompany).andExpect(status().isCreated());
+
+		// company grants first, then warehouse grants, each by grant id (PostgreSQL orders uuids as hex text)
+		List<Map<String, Object>> expected = grantRows(owner.organizationId()).stream()
+			.sorted(Comparator.comparing((Map<String, Object> r) -> r.get("warehouse_id") != null)
+				.thenComparing(r -> r.get("id").toString()))
+			.map(r -> grant(r.get("warehouse_id") == null ? "COMPANY" : "WAREHOUSE", (UUID) r.get("company_id"),
+					(UUID) r.get("warehouse_id")))
+			.toList();
+
+		assertThat(expected).hasSize(4);
+		assertThat(list(readAs(owner, member.userId()))).isEqualTo(expected);
+		assertThat(list(readAs(admin, member.userId()))).isEqualTo(expected);
+		assertThat(list(readAs(owner, admin.userId()))).isEmpty();
+	}
+
+	@Test
+	void memberReadsOnlyOwnGrants() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		Session other = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated());
+		grantCompanyAs(owner, other.userId(), companyId).andExpect(status().isCreated());
+
+		assertThat(list(readAs(member, member.userId()))).containsExactly(grant("COMPANY", companyId, null));
+		readAs(member, other.userId()).andExpect(status().isForbidden());
+		readAs(member, owner.userId()).andExpect(status().isForbidden());
+	}
+
+	@Test
+	void archivedTargetsCanBeGranted() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		archiveCompany(owner, companyId);
+		UUID otherCompany = company(owner);
+		UUID archivedWarehouse = warehouse(owner, otherCompany);
+		archiveWarehouse(owner, otherCompany, archivedWarehouse);
+
+		assertThat(body(grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated())))
+			.isEqualTo(grant("COMPANY", companyId, null));
+		assertThat(body(grantWarehouseAs(owner, member.userId(), archivedWarehouse).andExpect(status().isCreated())))
+			.isEqualTo(grant("WAREHOUSE", otherCompany, archivedWarehouse));
+		assertThat(grantRows(owner.organizationId())).hasSize(2);
+	}
+
+	@Test
+	void unauthenticatedReturns401() throws Exception {
+		UUID id = UUID.randomUUID();
+		String base = "/api/members/" + id + "/access";
+
+		mvc.perform(get(base)).andExpect(status().isUnauthorized());
+		mvc.perform(post(base).contentType(MediaType.APPLICATION_JSON).content("{\"companyId\": \"%s\"}".formatted(id)))
+			.andExpect(status().isUnauthorized());
+		mvc.perform(delete(base + "/companies/" + id)).andExpect(status().isUnauthorized());
+		mvc.perform(delete(base + "/warehouses/" + id)).andExpect(status().isUnauthorized());
+	}
+
+}
