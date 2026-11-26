@@ -178,7 +178,8 @@ class TenantIsolationIT {
 				              where a.attrelid = c.oid and a.attname = 'tenant_id' and not a.attisdropped)
 				""");
 
-		assertThat(tables).extracting(row -> row.get("relname")).contains("companies", "categories", "products", "stock_balances", "stock_movements");
+		assertThat(tables).extracting(row -> row.get("relname")).contains("companies", "categories", "products", "stock_balances", "stock_movements",
+				"stock_transfers", "stock_transfer_items");
 		assertThat(tables).allSatisfy(row -> assertThat(row).as(String.valueOf(row.get("relname")))
 			.containsEntry("relrowsecurity", true)
 			.containsEntry("relforcerowsecurity", true)

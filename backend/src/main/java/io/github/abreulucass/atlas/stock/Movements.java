@@ -23,6 +23,7 @@ import io.github.abreulucass.atlas.stock.internal.MovementRepository;
 import io.github.abreulucass.atlas.stock.internal.PageParams;
 import io.github.abreulucass.atlas.stock.internal.MovementRequest;
 import io.github.abreulucass.atlas.stock.internal.StockIds;
+import io.github.abreulucass.atlas.stock.internal.TransferRepository;
 import io.github.abreulucass.atlas.warehouse.WarehouseView;
 import io.github.abreulucass.atlas.warehouse.Warehouses;
 
@@ -37,6 +38,8 @@ public class Movements {
 
 	private final BalanceRepository balances;
 
+	private final TransferRepository transfers;
+
 	private final Organizations organizations;
 
 	private final Companies companies;
@@ -45,10 +48,12 @@ public class Movements {
 
 	private final Products products;
 
-	Movements(MovementRepository movements, BalanceRepository balances, Organizations organizations,
+	Movements(MovementRepository movements, BalanceRepository balances, TransferRepository transfers,
+			Organizations organizations,
 			Companies companies, Warehouses warehouses, Products products) {
 		this.movements = movements;
 		this.balances = balances;
+		this.transfers = transfers;
 		this.organizations = organizations;
 		this.companies = companies;
 		this.warehouses = warehouses;
@@ -74,6 +79,10 @@ public class Movements {
 				throw new IdempotencyKeyReusedException();
 			}
 			return replay.get();
+		}
+		// the key namespace is shared with transfers
+		if (transfers.findByKey(tenant, idempotencyKey).isPresent()) {
+			throw new IdempotencyKeyReusedException();
 		}
 		ProductView product = products.find(request.productId());
 		if (!product.fractional() && request.delta().scale() > 0) {
@@ -122,7 +131,7 @@ public class Movements {
 				movementType = MovementType.valueOf(type);
 			}
 			catch (IllegalArgumentException e) {
-				throw new InvalidMovementException("type must be IN, OUT or ADJUSTMENT");
+				throw new InvalidMovementException("type must be IN, OUT, ADJUSTMENT, TRANSFER_OUT or TRANSFER_IN");
 			}
 		}
 		long totalItems = movements.count(tenant, warehouse, product, movementType);

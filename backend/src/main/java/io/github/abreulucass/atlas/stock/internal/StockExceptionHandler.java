@@ -18,7 +18,7 @@ import io.github.abreulucass.atlas.stock.StockNotFoundException;
 import io.github.abreulucass.atlas.warehouse.WarehouseNotFoundException;
 
 /** Everything as {@code ProblemDetail}; body-parsing errors from the base class. */
-@RestControllerAdvice(assignableTypes = { MovementController.class, BalanceController.class })
+@RestControllerAdvice(assignableTypes = { MovementController.class, BalanceController.class, TransferController.class })
 class StockExceptionHandler extends ResponseEntityExceptionHandler {
 
 	@ExceptionHandler({ InvalidIdempotencyKeyException.class, InvalidMovementException.class })
@@ -32,10 +32,19 @@ class StockExceptionHandler extends ResponseEntityExceptionHandler {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, e.getMessage());
 	}
 
-	@ExceptionHandler({ OrganizationArchivedException.class, StockArchivedException.class,
-			InsufficientBalanceException.class })
+	@ExceptionHandler({ OrganizationArchivedException.class, StockArchivedException.class })
 	ProblemDetail conflict(RuntimeException e) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+	}
+
+	/** A transfer names the first failing item in {@code productId}; a single movement has none. */
+	@ExceptionHandler(InsufficientBalanceException.class)
+	ProblemDetail insufficient(InsufficientBalanceException e) {
+		ProblemDetail problem = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+		if (e.productId() != null) {
+			problem.setProperty("productId", e.productId());
+		}
+		return problem;
 	}
 
 	@ExceptionHandler(IdempotencyKeyReusedException.class)

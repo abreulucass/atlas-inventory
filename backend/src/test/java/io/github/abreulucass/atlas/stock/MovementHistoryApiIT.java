@@ -52,6 +52,7 @@ class MovementHistoryApiIT extends StockITSupport {
 			assertThat((String) JsonPath.read(body, "$.note")).isEqualTo("first");
 			assertThat((String) JsonPath.read(body, "$.createdBy")).isEqualTo(s.owner().userId().toString());
 			assertThat((String) JsonPath.read(body, "$.createdAt")).isEqualTo(JsonPath.read(created, "$.createdAt"));
+			assertThat(JsonPath.<Object>read(body, "$.transferId")).isNull();
 		}
 		// a movement of another warehouse, an unknown id and a malformed id are not in this warehouse
 		UUID other = createWarehouse(s.owner(), s.company());

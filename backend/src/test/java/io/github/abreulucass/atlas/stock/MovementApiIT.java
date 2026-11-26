@@ -134,6 +134,7 @@ class MovementApiIT extends StockITSupport {
 			assertThat((String) JsonPath.read(body, "$.productId")).isEqualTo(product.toString());
 			assertThat((String) JsonPath.read(body, "$.warehouseId")).isEqualTo(s.warehouse().toString());
 			assertThat((String) JsonPath.read(body, "$.createdBy")).isEqualTo(as.userId().toString());
+			assertThat(JsonPath.<Object>read(body, "$.transferId")).isNull();
 		}
 	}
 
@@ -147,6 +148,7 @@ class MovementApiIT extends StockITSupport {
 		assertThat(number(body, "$.quantity")).isEqualByComparingTo("-4");
 		assertThat(number(body, "$.balanceAfter")).isEqualByComparingTo("6");
 		assertThat((String) JsonPath.read(body, "$.type")).isEqualTo("OUT");
+		assertThat(JsonPath.<Object>read(body, "$.transferId")).isNull();
 		assertPersisted(s, s.product(), body, "OUT", "-4", "6", s.owner().userId(), null);
 		assertThat(ledger(s.owner().organizationId()).entries()).extracting(e -> e.get("id").toString())
 			.containsExactly((String) JsonPath.read(in, "$.id"), JsonPath.read(body, "$.id"));
@@ -166,6 +168,8 @@ class MovementApiIT extends StockITSupport {
 		assertThat(number(down, "$.quantity")).isEqualByComparingTo("-2");
 		assertThat(number(down, "$.balanceAfter")).isEqualByComparingTo("11");
 		assertThat((String) JsonPath.read(down, "$.note")).isEqualTo("breakage");
+		assertThat(JsonPath.<Object>read(up, "$.transferId")).isNull();
+		assertThat(JsonPath.<Object>read(down, "$.transferId")).isNull();
 		assertPersisted(s, s.product(), up, "ADJUSTMENT", "3", "13", s.owner().userId(), "recount");
 		assertPersisted(s, s.product(), down, "ADJUSTMENT", "-2", "11", s.owner().userId(), "breakage");
 		assertThat(ledger(s.owner().organizationId()).entries()).extracting(e -> e.get("id").toString())

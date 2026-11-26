@@ -88,6 +88,15 @@ public class Warehouses {
 			.orElseThrow(() -> new WarehouseNotFoundException(id)));
 	}
 
+	/** The organization's warehouse with this id, archived included; 404 when unknown or outside a MEMBER's grants. */
+	@Transactional(readOnly = true)
+	public WarehouseView find(UUID id) {
+		TenantContext.require();
+		return view(repository.findById(id)
+			.filter(w -> permissions.visibility().seesWarehouse(w.getCompanyId(), w.getId()))
+			.orElseThrow(() -> new WarehouseNotFoundException(id)));
+	}
+
 	private static WarehouseView view(Warehouse w) {
 		return new WarehouseView(w.getId(), w.getCompanyId(), w.getName(), w.getCode(),
 				w.isArchived() ? Status.ARCHIVED : Status.ACTIVE);
