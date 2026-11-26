@@ -9,7 +9,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.github.abreulucass.atlas.access.Organizations;
+import io.github.abreulucass.atlas.access.Permissions;
 import io.github.abreulucass.atlas.access.TenantContext;
+import io.github.abreulucass.atlas.access.Visibility;
 import io.github.abreulucass.atlas.company.Companies;
 import io.github.abreulucass.atlas.warehouse.internal.Warehouse;
 import io.github.abreulucass.atlas.warehouse.internal.WarehouseCode;
@@ -25,10 +27,14 @@ public class Warehouses {
 
 	private final Organizations organizations;
 
-	Warehouses(WarehouseRepository repository, Companies companies, Organizations organizations) {
+	private final Permissions permissions;
+
+	Warehouses(WarehouseRepository repository, Companies companies, Organizations organizations,
+			Permissions permissions) {
 		this.repository = repository;
 		this.companies = companies;
 		this.organizations = organizations;
+		this.permissions = permissions;
 	}
 
 	@Transactional
@@ -63,15 +69,23 @@ public class Warehouses {
 	@Transactional(readOnly = true)
 	public List<WarehouseView> list(UUID companyId, boolean includeArchived) {
 		companies.find(companyId);
+		Visibility visibility = permissions.visibility();
 		List<Warehouse> found = includeArchived ? repository.findByCompanyIdOrderByNameAsc(companyId)
 				: repository.findByCompanyIdAndArchivedAtIsNullOrderByNameAsc(companyId);
-		return found.stream().map(Warehouses::view).toList();
+		// shortcut: loads every warehouse of the company and filters in Java, fine for tens of warehouses; move the filter to SQL with pagination when lists grow
+		return found.stream()
+			.filter(w -> visibility.seesWarehouse(companyId, w.getId()))
+			.map(Warehouses::view)
+			.toList();
 	}
 
 	@Transactional(readOnly = true)
 	public WarehouseView find(UUID companyId, UUID id) {
 		companies.find(companyId);
-		return view(repository.findByIdAndCompanyId(id, companyId).orElseThrow(() -> new WarehouseNotFoundException(id)));
+		// a warehouse outside a MEMBER's grants answers like one that does not exist
+		return view(repository.findByIdAndCompanyId(id, companyId)
+			.filter(w -> permissions.visibility().seesWarehouse(companyId, w.getId()))
+			.orElseThrow(() -> new WarehouseNotFoundException(id)));
 	}
 
 	private static WarehouseView view(Warehouse w) {

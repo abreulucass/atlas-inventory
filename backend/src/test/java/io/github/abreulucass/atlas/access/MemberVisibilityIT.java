@@ -56,6 +56,36 @@ class MemberVisibilityIT extends AccessITSupport {
 	}
 
 	@Test
+	void companyGrantCoversLaterWarehouses() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		UUID before = warehouse(owner, companyId);
+		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated());
+
+		UUID after = warehouse(owner, companyId);
+
+		assertThat(ids(getAs(member, warehouses(companyId)))).containsExactlyInAnyOrder(before.toString(),
+				after.toString());
+		getAs(member, warehouses(companyId) + "/" + after).andExpect(status().isOk());
+	}
+
+	@Test
+	void warehouseGrantListsOnlyGrantedWarehouses() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		UUID first = warehouse(owner, companyId);
+		warehouse(owner, companyId);
+		UUID third = warehouse(owner, companyId);
+		grantWarehouseAs(owner, member.userId(), first).andExpect(status().isCreated());
+		grantWarehouseAs(owner, member.userId(), third).andExpect(status().isCreated());
+
+		assertThat(ids(getAs(member, warehouses(companyId)))).containsExactlyInAnyOrder(first.toString(),
+				third.toString());
+	}
+
+	@Test
 	void ungrantedResourcesReturn404() throws Exception {
 		Session owner = register("Olga");
 		Session member = join(owner, "MEMBER");
@@ -67,6 +97,13 @@ class MemberVisibilityIT extends AccessITSupport {
 		getAs(member, companies(ungranted)).andExpect(status().isNotFound());
 		getAs(member, warehouses(ungranted)).andExpect(status().isNotFound());
 		getAs(member, warehouses(ungranted) + "/" + ungrantedWarehouse).andExpect(status().isNotFound());
+		// a readable company does not open its ungranted warehouses
+		UUID partial = company(owner);
+		UUID grantedWarehouse = warehouse(owner, partial);
+		UUID hiddenWarehouse = warehouse(owner, partial);
+		grantWarehouseAs(owner, member.userId(), grantedWarehouse).andExpect(status().isCreated());
+		getAs(member, warehouses(partial) + "/" + hiddenWarehouse).andExpect(status().isNotFound());
+		getAs(member, warehouses(partial) + "/" + grantedWarehouse).andExpect(status().isOk());
 	}
 
 	@Test
@@ -119,6 +156,64 @@ class MemberVisibilityIT extends AccessITSupport {
 
 		assertThat(ids(getAs(admin, "/api/companies"))).containsExactly(granted.toString());
 		getAs(admin, companies(ungranted)).andExpect(status().isNotFound());
+	}
+
+	@Test
+	void revokingCompanyKeepsWarehouseGrant() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		UUID kept = warehouse(owner, companyId);
+		UUID other = warehouse(owner, companyId);
+		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated());
+		grantWarehouseAs(owner, member.userId(), kept).andExpect(status().isCreated());
+		assertThat(ids(getAs(member, warehouses(companyId)))).hasSize(2);
+
+		revokeCompanyAs(owner, member.userId(), companyId).andExpect(status().isNoContent());
+
+		// the same access token, issued before the revoke
+		assertThat(ids(getAs(member, "/api/companies"))).containsExactly(companyId.toString());
+		assertThat(ids(getAs(member, warehouses(companyId)))).containsExactly(kept.toString());
+		getAs(member, warehouses(companyId) + "/" + kept).andExpect(status().isOk());
+		getAs(member, warehouses(companyId) + "/" + other).andExpect(status().isNotFound());
+	}
+
+	@Test
+	void archivedRulesHoldWithinGrants() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		UUID archivedCompany = company(owner);
+		UUID companyId = company(owner);
+		UUID active = warehouse(owner, companyId);
+		UUID archived = warehouse(owner, companyId);
+		UUID other = company(owner);
+		warehouse(owner, other);
+		UUID archivedGranted = warehouse(owner, other);
+		archiveCompany(owner, archivedCompany);
+		archiveWarehouse(owner, companyId, archived);
+		archiveWarehouse(owner, other, archivedGranted);
+		grantCompanyAs(owner, member.userId(), archivedCompany).andExpect(status().isCreated());
+		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated());
+		grantWarehouseAs(owner, member.userId(), archivedGranted).andExpect(status().isCreated());
+
+		assertThat(ids(getAs(member, "/api/companies"))).containsExactlyInAnyOrder(companyId.toString(),
+				other.toString());
+		assertThat(ids(getAs(member, "/api/companies?includeArchived=true"))).containsExactlyInAnyOrder(
+				archivedCompany.toString(), companyId.toString(), other.toString());
+		getAs(member, companies(archivedCompany)).andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("ARCHIVED"));
+
+		assertThat(ids(getAs(member, warehouses(companyId)))).containsExactly(active.toString());
+		assertThat(ids(getAs(member, warehouses(companyId) + "?includeArchived=true")))
+			.containsExactlyInAnyOrder(active.toString(), archived.toString());
+		getAs(member, warehouses(companyId) + "/" + archived).andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("ARCHIVED"));
+
+		assertThat(ids(getAs(member, warehouses(other)))).isEmpty();
+		assertThat(ids(getAs(member, warehouses(other) + "?includeArchived=true")))
+			.containsExactly(archivedGranted.toString());
+		getAs(member, warehouses(other) + "/" + archivedGranted).andExpect(status().isOk())
+			.andExpect(jsonPath("$.status").value("ARCHIVED"));
 	}
 
 }

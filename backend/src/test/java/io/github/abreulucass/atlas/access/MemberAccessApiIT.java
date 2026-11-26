@@ -278,6 +278,65 @@ class MemberAccessApiIT extends AccessITSupport {
 	}
 
 	@Test
+	void readdedMemberStartsWithoutGrants() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		UUID warehouseId = warehouse(owner, companyId);
+		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated());
+		grantWarehouseAs(owner, member.userId(), warehouseId).andExpect(status().isCreated());
+
+		removeAs(owner, member.userId()).andExpect(status().isNoContent());
+		assertThat(grantRows(owner.organizationId())).isEmpty();
+		addAs(owner, member.email(), "MEMBER").andExpect(status().isCreated());
+
+		assertThat(list(readAs(owner, member.userId()))).isEmpty();
+		assertThat(grantRows(owner.organizationId())).isEmpty();
+	}
+
+	@Test
+	void grantRacingRemovalLeavesNoGrant() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		var pool = java.util.concurrent.Executors.newSingleThreadExecutor();
+		try (var memberLock = java.sql.DriverManager.getConnection(url, ownerUser, ownerPassword)) {
+			memberLock.setAutoCommit(false);
+			try (var lock = memberLock.prepareStatement("select pg_advisory_xact_lock(hashtextextended(?, 0))")) {
+				lock.setString(1, "members:" + owner.organizationId());
+				lock.executeQuery().close();
+			}
+			var grant = pool.submit(() -> grantCompanyAs(owner, member.userId(), companyId).andReturn().getResponse());
+			awaitTrue(() -> app.queryForObject(
+					"select count(*) from pg_locks where not granted and locktype = 'advisory'", Integer.class) == 1,
+					"the grant to wait on the member lock");
+			try (var remove = memberLock
+				.prepareStatement("delete from memberships where user_id = ? and organization_id = ?")) {
+				remove.setObject(1, member.userId());
+				remove.setObject(2, owner.organizationId());
+				assertThat(remove.executeUpdate()).isEqualTo(1);
+			}
+			memberLock.commit();
+
+			assertThat(grant.get(30, java.util.concurrent.TimeUnit.SECONDS).getStatus()).isEqualTo(404);
+		}
+		finally {
+			pool.shutdownNow();
+		}
+		assertThat(grantRows(owner.organizationId())).isEmpty();
+	}
+
+	void awaitTrue(java.util.function.BooleanSupplier condition, String what) throws InterruptedException {
+		long deadline = System.nanoTime() + java.util.concurrent.TimeUnit.SECONDS.toNanos(15);
+		while (!condition.getAsBoolean()) {
+			if (System.nanoTime() > deadline) {
+				throw new AssertionError("timed out waiting for " + what);
+			}
+			Thread.sleep(20);
+		}
+	}
+
+	@Test
 	void unauthenticatedReturns401() throws Exception {
 		UUID id = UUID.randomUUID();
 		String base = "/api/members/" + id + "/access";
