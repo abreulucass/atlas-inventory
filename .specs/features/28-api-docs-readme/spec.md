@@ -146,14 +146,14 @@ Proof: run backend | io.github.abreulucass.atlas.ApiDocsIT.apiDocsAnswerWithBear
 **C9** - README no longer says the backend has no domain features (DOC-02, AC 1)
 Proof: `! grep -q "ainda não tem funcionalidades de domínio" README.md`
 
-**C10** - README has "Feito" and "Roadmap" sections with the five roadmap items (DOC-02, AC 2)
-Proof: `grep -q "^## Feito" README.md && grep -q "^## Roadmap" README.md && for t in ornecedores eserva otes ompras ashboard; do awk '/^## Roadmap/{r=1;next} /^## /{r=0} r' README.md | grep -q "$t" || exit 1; done`
+**C10** - README has "Feito" with the seven implemented features and "Roadmap" with the five roadmap items, none of them in "Feito" (DOC-02, AC 2)
+Proof: `for t in "Autenticação com JWT" "Membros e papéis" "Empresas e depósitos" "Categorias e produtos" "Movimentações de estoque idempotentes" "Transferências atômicas" "Isolamento multi-tenant"; do awk '/^## Feito/{f=1;next} /^## /{f=0} f' README.md | grep -q "^- $t" || exit 1; done; for t in Fornecedores "Reservas de estoque" "Lotes e validade" "Compras e reposição" "Dashboard de indicadores"; do awk '/^## Roadmap/{r=1;next} /^## /{r=0} r' README.md | grep -q "^- $t" || exit 1; awk '/^## Feito/{f=1;next} /^## /{f=0} f' README.md | grep -q "$t" && exit 1; done; exit 0`
 
-**C11** - README endpoint table names every controller base path (DOC-02, AC 3)
-Proof: `for p in /api/auth/register /api/me /api/members /api/companies /warehouses /api/categories /api/products /movements /stock /api/transfers; do grep -q "| .*$p" README.md || exit 1; done`
+**C11** - README endpoint table lists every controller operation as a full `METHOD /path` pair (DOC-02, AC 3)
+Proof: `bt=$(printf '\140'); for e in POST:/api/auth/register POST:/api/auth/login POST:/api/auth/refresh POST:/api/auth/logout POST:/api/auth/switch-organization GET:/api/me GET:/api/members POST:/api/members PATCH:/api/members/{userId} DELETE:/api/members/{userId} GET:/api/members/{userId}/access POST:/api/members/{userId}/access DELETE:/api/members/{userId}/access/companies/{companyId} DELETE:/api/members/{userId}/access/warehouses/{warehouseId} POST:/api/companies/{companyId}/warehouses/{warehouseId}/movements GET:/api/companies/{companyId}/warehouses/{warehouseId}/movements GET:/api/companies/{companyId}/warehouses/{warehouseId}/movements/{id} GET:/api/companies/{companyId}/warehouses/{warehouseId}/stock GET:/api/products/{id}/stock GET:/api/companies GET:/api/companies/{id} POST:/api/companies POST:/api/companies/{id}/archive POST:/api/companies/{id}/unarchive GET:/api/companies/{companyId}/warehouses GET:/api/companies/{companyId}/warehouses/{id} POST:/api/companies/{companyId}/warehouses POST:/api/companies/{companyId}/warehouses/{id}/archive POST:/api/companies/{companyId}/warehouses/{id}/unarchive GET:/api/categories GET:/api/categories/{id} POST:/api/categories POST:/api/categories/{id}/archive POST:/api/categories/{id}/unarchive GET:/api/products GET:/api/products/{id} POST:/api/products PATCH:/api/products/{id} POST:/api/products/{id}/archive POST:/api/products/{id}/unarchive POST:/api/transfers GET:/api/transfers/{id}; do grep -qF "| ${bt}${e%%:*} ${e#*:}${bt}" README.md || { echo "missing $e"; exit 1; }; done`
 
-**C12** - README states the Next.js BFF and no CORS on purpose (DOC-02, AC 4)
-Proof: `grep -q "BFF" README.md && grep -q "CORS" README.md`
+**C12** - README states the Next.js BFF and that the backend has no CORS on purpose (DOC-02, AC 4)
+Proof: `grep -q "chega à API por um BFF: os route handlers do Next chamam o backend no servidor" README.md && grep -q "o backend não tem CORS, de propósito" README.md && ! grep -qi "habilita.* CORS\|CORS habilitado" README.md`
 
-**C13** - README shows how to enable and open the docs (DOC-02, AC 5)
-Proof: `grep -q "ATLAS_API_DOCS_ENABLED=true" README.md && grep -q "/swagger-ui.html" README.md`
+**C13** - README shows the `export ATLAS_API_DOCS_ENABLED=true` in the run instructions and the full Swagger UI URL (DOC-02, AC 5)
+Proof: `bt=$(printf '\140'); awk '/^[\140]{3}bash/{b=1;next} /^[\140]{3}/{b=0} b' README.md | grep -q '^export ATLAS_API_DOCS_ENABLED=true' && grep -qF "Swagger UI fica em ${bt}http://localhost:8080/swagger-ui.html${bt}" README.md`
