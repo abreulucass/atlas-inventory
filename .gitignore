@@ -35,6 +35,7 @@
 .agent/
 .codex/
 .maestri/
+.pi/
 graphify-out/
 skills-lock.json
 
