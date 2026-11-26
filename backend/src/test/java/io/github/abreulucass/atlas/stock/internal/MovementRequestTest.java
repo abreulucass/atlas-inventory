@@ -44,6 +44,12 @@ class MovementRequestTest {
 	}
 
 	@Test
+	void transferTypesAreRefused() {
+		refuses(body("\"TRANSFER_OUT\"", "1", null));
+		refuses(body("\"TRANSFER_IN\"", "1", null));
+	}
+
+	@Test
 	void negativeQuantityIsRefusedOnInAndOut() {
 		refuses(body("\"IN\"", "-1", null));
 		refuses(body("\"OUT\"", "-1", null));
