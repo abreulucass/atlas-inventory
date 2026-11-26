@@ -6,6 +6,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 
 import org.springframework.stereotype.Service;
@@ -78,6 +79,20 @@ public class Transfers {
 		WarehouseView from = warehouses.find(id(request.fromWarehouseId(), "Warehouse"));
 		WarehouseView to = warehouses.find(id(request.toWarehouseId(), "Warehouse"));
 
+		// a replay answers before any state check, so a retry after an archive still gets its result
+		movements.lockKey(tenant, idempotencyKey);
+		var replay = transfers.findByKey(tenant, idempotencyKey);
+		if (replay.isPresent()) {
+			if (!sameRequest(replay.get(), from.id(), to.id(), request)) {
+				throw new IdempotencyKeyReusedException();
+			}
+			return replay.get();
+		}
+		// the key namespace is shared with movements
+		if (movements.findByKey(tenant, idempotencyKey).isPresent()) {
+			throw new IdempotencyKeyReusedException();
+		}
+
 		List<UUID> productIds = new ArrayList<>();
 		for (TransferRequest.Item item : request.items()) {
 			productIds.add(id(item.productId(), "Product"));
@@ -139,6 +154,22 @@ public class Transfers {
 			}
 		}
 		return view;
+	}
+
+	/** Same warehouses, note and set of (product, numerically equal quantity), in any item order. */
+	private static boolean sameRequest(TransferView stored, UUID from, UUID to, TransferRequest request) {
+		if (!stored.fromWarehouseId().equals(from) || !stored.toWarehouseId().equals(to)
+				|| !Objects.equals(stored.note(), request.note()) || stored.items().size() != request.items().size()) {
+			return false;
+		}
+		Map<UUID, BigDecimal> quantities = new HashMap<>();
+		stored.items().forEach(i -> quantities.put(i.productId(), i.quantity()));
+		// items are unique by product, so equal size plus every request item found means equal sets
+		return request.items().stream().allMatch(item -> {
+			UUID product = StockIds.parse(item.productId());
+			return product != null && quantities.containsKey(product)
+					&& quantities.get(product).compareTo(item.quantity()) == 0;
+		});
 	}
 
 	private static UUID id(String text, String what) {

@@ -3,6 +3,7 @@ package io.github.abreulucass.atlas.stock.internal;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
@@ -56,6 +57,33 @@ public class TransferRepository {
 			views.add(new TransferView.Item(products.get(i), quantity.setScale(3)));
 		}
 		return new TransferView(id, from, to, note, List.copyOf(views), user, createdAt.toInstant());
+	}
+
+	private record Header(UUID id, UUID from, UUID to, @Nullable String note, UUID createdBy, OffsetDateTime createdAt) {
+	}
+
+	/** The transfer recorded with this idempotency key in the tenant, if any. */
+	public Optional<TransferView> findByKey(UUID tenant, String key) {
+		return load(tenant, jdbc.sql("""
+				select id, from_warehouse_id, to_warehouse_id, note, created_by, created_at from stock_transfers
+				where tenant_id = :t and idempotency_key = :key""")
+			.param("t", tenant)
+			.param("key", key)
+			.query((rs, i) -> new Header(rs.getObject("id", UUID.class), rs.getObject("from_warehouse_id", UUID.class),
+					rs.getObject("to_warehouse_id", UUID.class), rs.getString("note"),
+					rs.getObject("created_by", UUID.class), rs.getObject("created_at", OffsetDateTime.class)))
+			.optional());
+	}
+
+	private Optional<TransferView> load(UUID tenant, Optional<Header> header) {
+		return header.map(h -> new TransferView(h.id(), h.from(), h.to(), h.note(),
+				jdbc.sql("select product_id, quantity from stock_transfer_items where tenant_id = :t and transfer_id = :id order by line")
+					.param("t", tenant)
+					.param("id", h.id())
+					.query((rs, i) -> new TransferView.Item(rs.getObject("product_id", UUID.class),
+							rs.getBigDecimal("quantity")))
+					.list(),
+				h.createdBy(), h.createdAt().toInstant()));
 	}
 
 }

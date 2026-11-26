@@ -21,11 +21,6 @@ import com.jayway.jsonpath.JsonPath;
 
 class TransferApiIT extends TransferITSupport {
 
-	/** OWNER, ADMIN and a MEMBER whose grants show every warehouse of the scene, so both ends of any transfer. */
-	List<Session> writers(TScene s) throws Exception {
-		return List.of(s.owner(), joinAs(s.owner(), "ADMIN"), memberWith(s, "warehouseId", s.w1(), s.w2(), s.w3()));
-	}
-
 	/** Sends as every writer and expects the status with the whole persisted state unchanged. */
 	void refused(TScene s, int expected, String json) throws Exception {
 		for (Session as : writers(s)) {
@@ -468,6 +463,26 @@ class TransferApiIT extends TransferITSupport {
 					"company is archived", "warehouse");
 			earlier(s, as, key(), transferBody(s.w1(), archivedWarehouse, null, archivedProduct, 1), 409,
 					"warehouse is archived", "product");
+		}
+		// the replay and the key reuse come after the 404 warehouse and before the 404 product and every state rule
+		UUID archivedP = archivedProduct;
+		for (Session as : List.of(owner, admin, member)) {
+			String key = key();
+			String original = transferBody(s.w1(), s.w2(), null, s.p1(), 1);
+			transfer(as, key, original).andExpect(status().isCreated());
+			// 400 body before the replay
+			earlier(s, as, key, "{\"fromWarehouseId\": \"%s\", \"toWarehouseId\": \"%s\", \"items\": []}".formatted(s.w1(), s.w2()),
+					400, "items", "Idempotency-Key was already");
+			// 404 warehouse before the replay
+			earlier(s, as, key, transferBody(unknownWarehouse, s.w2(), null, s.p1(), 1), 404, "Warehouse not found",
+					"Idempotency-Key was already");
+			// the key reuse before the 404 product, the 400 whole quantity, the 409 archived and the 409 insufficient
+			for (String other : List.of(transferBody(s.w1(), s.w2(), null, unknownProduct, 1),
+					transferBody(s.w1(), s.w2(), null, s.p1(), "1.5"), transferBody(s.w1(), s.w2(), null, archivedP, 1),
+					transferBody(s.w1(), archivedWarehouse, null, s.p1(), 1),
+					transferBody(s.w1(), s.w2(), null, s.p2(), 1000))) {
+				earlier(s, as, key, other, 422, "Idempotency-Key was already", "not found");
+			}
 		}
 		// 401 before 409 archived organization, which comes before 400 key
 		archiveOrganization(s.tenant());

@@ -45,6 +45,11 @@ abstract class TransferITSupport extends StockITSupport {
 		return s;
 	}
 
+	/** OWNER, ADMIN and a MEMBER whose grants show every warehouse of the scene, so both ends of any transfer. */
+	List<Session> writers(TScene s) throws Exception {
+		return List.of(s.owner(), joinAs(s.owner(), "ADMIN"), memberWith(s, "warehouseId", s.w1(), s.w2(), s.w3()));
+	}
+
 	static String sku() {
 		return "P" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
 	}
