@@ -10,7 +10,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import io.github.abreulucass.atlas.access.Organizations;
+import io.github.abreulucass.atlas.access.Permissions;
 import io.github.abreulucass.atlas.access.TenantContext;
+import io.github.abreulucass.atlas.access.Visibility;
 import io.github.abreulucass.atlas.company.internal.Cnpj;
 import io.github.abreulucass.atlas.company.internal.Company;
 import io.github.abreulucass.atlas.company.internal.CompanyRepository;
@@ -23,9 +25,12 @@ public class Companies {
 
 	private final Organizations organizations;
 
-	Companies(CompanyRepository repository, Organizations organizations) {
+	private final Permissions permissions;
+
+	Companies(CompanyRepository repository, Organizations organizations, Permissions permissions) {
 		this.repository = repository;
 		this.organizations = organizations;
+		this.permissions = permissions;
 	}
 
 	@Transactional
@@ -55,15 +60,20 @@ public class Companies {
 	@Transactional(readOnly = true)
 	public List<CompanyView> list(boolean includeArchived) {
 		TenantContext.require();
+		Visibility visibility = permissions.visibility();
 		List<Company> found = includeArchived ? repository.findAllByOrderByNameAsc()
 				: repository.findByArchivedAtIsNullOrderByNameAsc();
-		return found.stream().map(Companies::view).toList();
+		// shortcut: loads the whole organization and filters in Java, fine for tens of companies; move the filter to SQL with pagination when lists grow
+		return found.stream().filter(c -> visibility.seesCompany(c.getId())).map(Companies::view).toList();
 	}
 
 	@Transactional(readOnly = true)
 	public CompanyView find(UUID id) {
 		TenantContext.require();
-		return view(repository.findById(id).orElseThrow(() -> new CompanyNotFoundException(id)));
+		// a company outside a MEMBER's grants answers like one that does not exist
+		return view(repository.findById(id)
+			.filter(c -> permissions.visibility().seesCompany(c.getId()))
+			.orElseThrow(() -> new CompanyNotFoundException(id)));
 	}
 
 	private static CompanyView view(Company c) {

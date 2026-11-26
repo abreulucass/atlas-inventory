@@ -75,6 +75,22 @@ class CompanyApiIT {
 	}
 
 	/** A second user with the given role in the organization, holding a token for it. */
+	// feature 20: a MEMBER reads only granted companies, so these read tests grant them all
+	void grantAllCompanies(Session in, Session member) {
+		owner().execute((org.springframework.jdbc.core.ConnectionCallback<Void>) connection -> {
+			try (var setting = connection.prepareStatement("select set_config('app.tenant_id', ?, false)");
+					var grant = connection.prepareStatement("""
+							insert into member_access (id, tenant_id, user_id, company_id, warehouse_id, created_at)
+							select gen_random_uuid(), tenant_id, ?, id, null, now() from companies""")) {
+				setting.setString(1, in.organizationId().toString());
+				setting.executeQuery();
+				grant.setObject(1, member.userId());
+				grant.executeUpdate();
+			}
+			return null;
+		});
+	}
+
 	Session joinAs(Session of, String role) throws Exception {
 		Session user = register();
 		owner().update(
@@ -150,6 +166,7 @@ class CompanyApiIT {
 		UUID acme = seed(owner, "Acme", "12ABC34501DE35");
 		seedArchived(owner, "Beta");
 		Session member = joinAs(owner, "MEMBER");
+		grantAllCompanies(owner, member);
 
 		getAs(member, "/api/companies").andExpect(status().isOk())
 			.andExpect(jsonPath("$.length()").value(2))
@@ -169,6 +186,7 @@ class CompanyApiIT {
 		UUID beta = seedArchived(owner, "Beta");
 		seed(owner, "Acme", null);
 		Session member = joinAs(owner, "MEMBER");
+		grantAllCompanies(owner, member);
 
 		getAs(member, "/api/companies?includeArchived=true").andExpect(status().isOk())
 			.andExpect(jsonPath("$.length()").value(3))
@@ -184,6 +202,7 @@ class CompanyApiIT {
 		UUID active = seed(owner, "Acme", null);
 		UUID archived = seedArchived(owner, "Beta");
 		Session member = joinAs(owner, "MEMBER");
+		grantAllCompanies(owner, member);
 
 		getAs(member, "/api/companies/" + active).andExpect(status().isOk())
 			.andExpect(jsonPath("$.id").value(active.toString()))

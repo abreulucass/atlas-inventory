@@ -79,6 +79,22 @@ class WarehouseApiIT {
 	}
 
 	/** A second user with the given role in the organization, holding a token for it. */
+	// feature 20: a MEMBER reads only granted companies, so these read tests grant them all
+	void grantAllCompanies(Session in, Session member) {
+		owner().execute((org.springframework.jdbc.core.ConnectionCallback<Void>) connection -> {
+			try (var setting = connection.prepareStatement("select set_config('app.tenant_id', ?, false)");
+					var grant = connection.prepareStatement("""
+							insert into member_access (id, tenant_id, user_id, company_id, warehouse_id, created_at)
+							select gen_random_uuid(), tenant_id, ?, id, null, now() from companies""")) {
+				setting.setString(1, in.organizationId().toString());
+				setting.executeQuery();
+				grant.setObject(1, member.userId());
+				grant.executeUpdate();
+			}
+			return null;
+		});
+	}
+
 	Session joinAs(Session of, String role) throws Exception {
 		Session user = register();
 		owner().update(
@@ -169,6 +185,7 @@ class WarehouseApiIT {
 		UUID alpha = seed(owner, company, "Alpha", "A");
 		seedArchived(owner, company, "Beta", "B");
 		Session member = joinAs(owner, "MEMBER");
+		grantAllCompanies(owner, member);
 
 		getAs(member, base(company)).andExpect(status().isOk())
 			.andExpect(jsonPath("$.length()").value(2))
@@ -192,6 +209,7 @@ class WarehouseApiIT {
 		UUID beta = seedArchived(owner, company, "Beta", "B");
 		seed(owner, company, "Alpha", "A");
 		Session member = joinAs(owner, "MEMBER");
+		grantAllCompanies(owner, member);
 
 		getAs(member, base(company) + "?includeArchived=true").andExpect(status().isOk())
 			.andExpect(jsonPath("$.length()").value(3))
@@ -211,6 +229,7 @@ class WarehouseApiIT {
 		UUID active = seed(owner, company, "Main", "MAIN");
 		UUID archived = seedArchived(owner, company, "Old", "OLD");
 		Session member = joinAs(owner, "MEMBER");
+		grantAllCompanies(owner, member);
 
 		getAs(member, base(company) + "/" + active).andExpect(status().isOk())
 			.andExpect(jsonPath("$.id").value(active.toString()))
