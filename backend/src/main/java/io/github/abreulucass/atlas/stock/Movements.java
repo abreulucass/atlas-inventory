@@ -1,6 +1,7 @@
 package io.github.abreulucass.atlas.stock;
 
 import java.math.BigDecimal;
+import java.util.Objects;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
@@ -62,6 +63,15 @@ public class Movements {
 		WarehouseView warehouseView = warehouses.find(company, warehouse);
 		String idempotencyKey = IdempotencyKey.parse(key);
 		MovementRequest request = MovementRequest.parse(body);
+		// a replay answers before any state check, so a retry after the product was archived still gets its result
+		movements.lockKey(tenant, idempotencyKey);
+		var replay = movements.findByKey(tenant, idempotencyKey);
+		if (replay.isPresent()) {
+			if (!sameRequest(replay.get(), warehouse, request)) {
+				throw new IdempotencyKeyReusedException();
+			}
+			return replay.get();
+		}
 		ProductView product = products.find(request.productId());
 		if (!product.fractional() && request.delta().scale() > 0) {
 			throw new InvalidMovementException("quantity must be a whole number for unit " + product.unit());
@@ -81,6 +91,13 @@ public class Movements {
 			.orElseThrow(InsufficientBalanceException::new);
 		return movements.insert(tenant, company, warehouse, request, product.id(), balanceAfter, idempotencyKey,
 				CurrentUser.id());
+	}
+
+	/** Same warehouse, type, product, numerically equal quantity and note; an unparseable product id differs. */
+	private static boolean sameRequest(MovementView stored, UUID warehouse, MovementRequest request) {
+		return stored.warehouseId().equals(warehouse) && stored.type() == request.type()
+				&& stored.productId().equals(StockIds.parse(request.productId()))
+				&& stored.quantity().compareTo(request.delta()) == 0 && Objects.equals(stored.note(), request.note());
 	}
 
 	private static UUID id(String text, String what) {

@@ -9,6 +9,7 @@ import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExcep
 import io.github.abreulucass.atlas.access.OrganizationArchivedException;
 import io.github.abreulucass.atlas.catalog.ProductNotFoundException;
 import io.github.abreulucass.atlas.company.CompanyNotFoundException;
+import io.github.abreulucass.atlas.stock.IdempotencyKeyReusedException;
 import io.github.abreulucass.atlas.stock.InsufficientBalanceException;
 import io.github.abreulucass.atlas.stock.InvalidIdempotencyKeyException;
 import io.github.abreulucass.atlas.stock.InvalidMovementException;
@@ -35,6 +36,11 @@ class StockExceptionHandler extends ResponseEntityExceptionHandler {
 			InsufficientBalanceException.class })
 	ProblemDetail conflict(RuntimeException e) {
 		return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, e.getMessage());
+	}
+
+	@ExceptionHandler(IdempotencyKeyReusedException.class)
+	ProblemDetail unprocessable(IdempotencyKeyReusedException e) {
+		return ProblemDetail.forStatusAndDetail(HttpStatus.UNPROCESSABLE_CONTENT, e.getMessage());
 	}
 
 }

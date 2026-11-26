@@ -5,9 +5,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -215,6 +220,29 @@ abstract class StockITSupport {
 
 	static BigDecimal number(String json, String path) {
 		return new BigDecimal(String.valueOf((Object) JsonPath.read(json, path)));
+	}
+
+	/** A transaction of the database owner, left open so the test decides when its locks are released. */
+	Connection ownerTransaction() throws SQLException {
+		Connection connection = DriverManager.getConnection(url, ownerUser, ownerPassword);
+		connection.setAutoCommit(false);
+		return connection;
+	}
+
+	/** Waits until exactly this many backends wait for a lock: the requests are queued behind the test's lock. */
+	void awaitLockWaiters(int count) throws InterruptedException {
+		awaitTrue(() -> app.queryForObject("select count(distinct pid) from pg_locks where not granted",
+				Integer.class) == count, count + " lock waiters");
+	}
+
+	void awaitTrue(BooleanSupplier condition, String what) throws InterruptedException {
+		long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+		while (!condition.getAsBoolean()) {
+			if (System.nanoTime() > deadline) {
+				throw new AssertionError("timed out waiting for " + what);
+			}
+			Thread.sleep(20);
+		}
 	}
 
 }
