@@ -8,7 +8,6 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -264,29 +263,28 @@ class MemberAccessApiIT extends AccessITSupport {
 		assertThat(grantRows(owner.organizationId())).isEqualTo(before);
 	}
 
+	/** C12: company grants first, then warehouse grants, each by grant id, whatever the insertion or target order. */
 	@Test
 	void managerReadsGrantsInOrder() throws Exception {
 		Session owner = register("Olga");
 		Session admin = join(owner, "ADMIN");
 		Session member = join(owner, "MEMBER");
-		UUID firstCompany = company(owner);
-		UUID secondCompany = company(owner);
-		UUID firstWarehouse = warehouse(owner, firstCompany);
-		UUID secondWarehouse = warehouse(owner, secondCompany);
-		grantWarehouseAs(owner, member.userId(), firstWarehouse).andExpect(status().isCreated());
-		grantCompanyAs(owner, member.userId(), firstCompany).andExpect(status().isCreated());
-		grantWarehouseAs(owner, member.userId(), secondWarehouse).andExpect(status().isCreated());
-		grantCompanyAs(owner, member.userId(), secondCompany).andExpect(status().isCreated());
+		UUID companyA = company(owner);
+		UUID companyB = company(owner);
+		UUID warehouseA = warehouse(owner, companyA);
+		UUID warehouseB = warehouse(owner, companyB);
+		UUID tenant = owner.organizationId();
+		String id = "00000000-0000-0000-0000-00000000000";
+		// ids and insertion go against the target creation order
+		seedGrant(tenant, id + "4", member.userId(), companyA, warehouseA);
+		seedGrant(tenant, id + "3", member.userId(), companyB, warehouseB);
+		seedGrant(tenant, id + "2", member.userId(), companyA, null);
+		seedGrant(tenant, id + "1", member.userId(), companyB, null);
 
-		// company grants first, then warehouse grants, each by grant id (PostgreSQL orders uuids as hex text)
-		List<Map<String, Object>> expected = grantRows(owner.organizationId()).stream()
-			.sorted(Comparator.comparing((Map<String, Object> r) -> r.get("warehouse_id") != null)
-				.thenComparing(r -> r.get("id").toString()))
-			.map(r -> grant(r.get("warehouse_id") == null ? "COMPANY" : "WAREHOUSE", (UUID) r.get("company_id"),
-					(UUID) r.get("warehouse_id")))
-			.toList();
+		List<Map<String, Object>> expected = List.of(grant("COMPANY", companyB, null),
+				grant("COMPANY", companyA, null), grant("WAREHOUSE", companyB, warehouseB),
+				grant("WAREHOUSE", companyA, warehouseA));
 
-		assertThat(expected).hasSize(4);
 		assertThat(list(readAs(owner, member.userId()))).isEqualTo(expected);
 		assertThat(list(readAs(admin, member.userId()))).isEqualTo(expected);
 		assertThat(list(readAs(owner, admin.userId()))).isEmpty();

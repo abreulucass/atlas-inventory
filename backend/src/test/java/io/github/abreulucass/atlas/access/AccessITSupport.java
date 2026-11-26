@@ -186,6 +186,21 @@ abstract class AccessITSupport {
 		}
 	}
 
+	/** Seeds a grant with a fixed id, as the owner inside the tenant. */
+	void seedGrant(UUID tenant, String id, UUID userId, UUID companyId, UUID warehouseId) {
+		SingleConnectionDataSource connection = new SingleConnectionDataSource(url, ownerUser, ownerPassword, true);
+		try {
+			JdbcTemplate owner = new JdbcTemplate(connection);
+			owner.queryForObject("select set_config('app.tenant_id', ?, false)", String.class, tenant.toString());
+			owner.update("""
+					insert into member_access (id, tenant_id, user_id, company_id, warehouse_id, created_at)
+					values (?, ?, ?, ?, ?, now())""", UUID.fromString(id), tenant, userId, companyId, warehouseId);
+		}
+		finally {
+			connection.destroy();
+		}
+	}
+
 	void archiveOrganization(UUID organizationId) {
 		SingleConnectionDataSource connection = new SingleConnectionDataSource(url, ownerUser, ownerPassword, true);
 		try {
