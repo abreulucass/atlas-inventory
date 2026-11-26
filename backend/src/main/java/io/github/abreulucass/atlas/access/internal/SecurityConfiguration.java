@@ -5,6 +5,8 @@ import java.nio.charset.StandardCharsets;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 
+import jakarta.servlet.DispatcherType;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -42,6 +44,9 @@ class SecurityConfiguration {
 		http.csrf(AbstractHttpConfigurer::disable)
 			.sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
 			.authorizeHttpRequests(a -> a
+				// an error response is already decided; the original request was authorized before it
+				.dispatcherTypeMatchers(DispatcherType.ERROR)
+				.permitAll()
 				.requestMatchers("/api/auth/register", "/api/auth/login", "/api/auth/refresh", "/api/auth/logout",
 						"/actuator/health", "/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**",
 						"/swagger-ui.html")
