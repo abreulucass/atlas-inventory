@@ -133,6 +133,53 @@ class MemberAccessApiIT extends AccessITSupport {
 		assertThat(grantRows(owner.organizationId())).isEmpty();
 	}
 
+	/** C33: only the canonical 8-4-4-4-12 spelling is a UUID, in path and body. */
+	@Test
+	void nonCanonicalUuidsAreRejected() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		UUID warehouseId = warehouse(owner, companyId);
+		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated());
+		grantWarehouseAs(owner, member.userId(), warehouseId).andExpect(status().isCreated());
+		var before = grantRows(owner.organizationId());
+
+		for (String bad : List.of("1-1-1-1-1", "1-1-1-1-" + "1".repeat(12), member.userId() + "0",
+				member.userId().toString().replace("-", ""), " " + member.userId())) {
+			grantCompanyAs(owner, bad, companyId).andExpect(status().isNotFound());
+			readAs(owner, bad).andExpect(status().isNotFound());
+			revokeCompanyAs(owner, bad, companyId).andExpect(status().isNotFound());
+			revokeWarehouseAs(owner, bad, warehouseId).andExpect(status().isNotFound());
+		}
+		UUID other = company(owner);
+		for (String bad : List.of("1-1-1-1-1", other.toString().replace("-", ""), other + "0")) {
+			grantAs(owner, member.userId(), "{\"companyId\": \"%s\"}".formatted(bad)).andExpect(status().isBadRequest());
+			grantAs(owner, member.userId(), "{\"warehouseId\": \"%s\"}".formatted(bad))
+				.andExpect(status().isBadRequest());
+			revokeCompanyAs(owner, member.userId(), bad).andExpect(status().isNotFound());
+			revokeWarehouseAs(owner, member.userId(), bad).andExpect(status().isNotFound());
+		}
+		removeAs(owner, "1-1-1-1-1").andExpect(status().isNotFound());
+
+		assertThat(grantRows(owner.organizationId())).isEqualTo(before);
+		assertThat(list(readAs(owner, member.userId().toString().toUpperCase()))).hasSize(2);
+	}
+
+	/** C34: a MEMBER's own id is compared by value, whatever its letter case. */
+	@Test
+	void memberReadsOwnGrantsWithUpperCaseId() throws Exception {
+		Session owner = register("Olga");
+		Session member = join(owner, "MEMBER");
+		Session other = join(owner, "MEMBER");
+		UUID companyId = company(owner);
+		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated());
+
+		assertThat(list(readAs(member, member.userId().toString().toUpperCase())))
+			.containsExactly(grant("COMPANY", companyId, null));
+		readAs(member, other.userId().toString().toUpperCase()).andExpect(status().isForbidden());
+		readAs(member, "1-1-1-1-1").andExpect(status().isForbidden());
+	}
+
 	@Test
 	void grantOtherTenantOrUnknownTargetReturns404() throws Exception {
 		Session owner = register("Olga");

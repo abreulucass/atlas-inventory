@@ -128,12 +128,11 @@ class Members {
 
 	// parsed after the caller and archived checks, so a malformed id follows the spec's precedence
 	static UUID parseUserId(String id) {
-		try {
-			return UUID.fromString(id);
-		}
-		catch (IllegalArgumentException e) {
+		UUID userId = Uuids.parse(id);
+		if (userId == null) {
 			throw new MemberNotFoundException();
 		}
+		return userId;
 	}
 
 	private static Role parseRole(String role) {

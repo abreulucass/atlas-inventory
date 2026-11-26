@@ -54,7 +54,7 @@ class MemberAccess {
 			.map(m -> m.getRole() != Role.MEMBER)
 			.orElse(false);
 		// a MEMBER is refused before the lookup, so another member's existence never leaks
-		if (!manager && !id.equals(CurrentUser.id().toString())) {
+		if (!manager && !CurrentUser.id().equals(Uuids.parse(id))) {
 			throw new NotAllowedException();
 		}
 		UUID userId = requireMember(id, organizationId);
@@ -121,11 +121,8 @@ class MemberAccess {
 		members.lockAndRequireManager(organizationId);
 		organizations.requireWritable(organizationId);
 		UUID userId = requireMember(id, organizationId);
-		UUID target;
-		try {
-			target = UUID.fromString(targetId);
-		}
-		catch (IllegalArgumentException e) {
+		UUID target = Uuids.parse(targetId);
+		if (target == null) {
 			throw new GrantNotFoundException();
 		}
 		if (jdbc.sql(delete).params(userId, target).update() == 0) {
@@ -164,12 +161,11 @@ class MemberAccess {
 	}
 
 	private static UUID parseBody(String id) {
-		try {
-			return UUID.fromString(id);
-		}
-		catch (IllegalArgumentException e) {
+		UUID parsed = Uuids.parse(id);
+		if (parsed == null) {
 			throw new InvalidGrantException();
 		}
+		return parsed;
 	}
 
 	private static GrantView view(UUID company, @Nullable UUID warehouse) {
