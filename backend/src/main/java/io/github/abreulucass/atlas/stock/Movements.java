@@ -1,7 +1,9 @@
 package io.github.abreulucass.atlas.stock;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.jspecify.annotations.Nullable;
@@ -18,6 +20,7 @@ import io.github.abreulucass.atlas.company.CompanyView;
 import io.github.abreulucass.atlas.stock.internal.BalanceRepository;
 import io.github.abreulucass.atlas.stock.internal.IdempotencyKey;
 import io.github.abreulucass.atlas.stock.internal.MovementRepository;
+import io.github.abreulucass.atlas.stock.internal.PageParams;
 import io.github.abreulucass.atlas.stock.internal.MovementRequest;
 import io.github.abreulucass.atlas.stock.internal.StockIds;
 import io.github.abreulucass.atlas.warehouse.WarehouseView;
@@ -91,6 +94,51 @@ public class Movements {
 			.orElseThrow(InsufficientBalanceException::new);
 		return movements.insert(tenant, company, warehouse, request, product.id(), balanceAfter, idempotencyKey,
 				CurrentUser.id());
+	}
+
+	@Transactional(readOnly = true)
+	public MovementView find(String companyId, String warehouseId, String id) {
+		UUID tenant = TenantContext.require();
+		UUID warehouse = visibleWarehouse(companyId, warehouseId);
+		UUID movement = StockIds.parse(id);
+		return (movement == null ? Optional.<MovementView>empty() : movements.findById(tenant, warehouse, movement))
+			.orElseThrow(() -> new StockNotFoundException("Movement not found: " + id));
+	}
+
+	/** Newest first; archived warehouses and companies stay readable. Parameters arrive as text, any bad one is 400. */
+	@Transactional(readOnly = true)
+	public MovementPage list(String companyId, String warehouseId, @Nullable String page, @Nullable String size,
+			@Nullable String productId, @Nullable String type) {
+		UUID tenant = TenantContext.require();
+		UUID warehouse = visibleWarehouse(companyId, warehouseId);
+		PageParams paging = PageParams.parse(page, size);
+		UUID product = null;
+		if (productId != null && (product = StockIds.parse(productId)) == null) {
+			throw new InvalidMovementException("productId must be a UUID");
+		}
+		MovementType movementType = null;
+		if (type != null) {
+			try {
+				movementType = MovementType.valueOf(type);
+			}
+			catch (IllegalArgumentException e) {
+				throw new InvalidMovementException("type must be IN, OUT or ADJUSTMENT");
+			}
+		}
+		long totalItems = movements.count(tenant, warehouse, product, movementType);
+		long offset = paging.offset();
+		var items = offset < 0 ? List.<MovementView>of()
+				: movements.page(tenant, warehouse, product, movementType, paging.size(), offset);
+		return new MovementPage(items, paging.page(), paging.size(), totalItems, paging.totalPages(totalItems));
+	}
+
+	/** 404 for a malformed, unknown or invisible company or warehouse. */
+	private UUID visibleWarehouse(String companyId, String warehouseId) {
+		UUID company = id(companyId, "Company");
+		UUID warehouse = id(warehouseId, "Warehouse");
+		companies.find(company);
+		warehouses.find(company, warehouse);
+		return warehouse;
 	}
 
 	/** Same warehouse, type, product, numerically equal quantity and note; an unparseable product id differs. */
