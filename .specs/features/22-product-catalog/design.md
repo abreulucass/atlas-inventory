@@ -57,7 +57,7 @@ Path ids and bodies reach the service as strings and are parsed after the role a
 
 - **Location**: `catalog/Categories.java`
 - **Interfaces**: `UUID create(String name)`, `List<CategoryView> list(boolean includeArchived)`, `CategoryView find(String id)`, `void archive(String id)`, `void unarchive(String id)`
-- **Package-visible to `Products`**: `Category requireAssignable(String id)` - parses a body `categoryId` (`400` if not canonical), `404` if not found, `409` if archived.
+- **Package-visible to `Products`**: `Category requireAssignable(String id)` - parses a body `categoryId`; `404` if not canonical or not found, `409` if archived.
 
 ### `Products` (public service)
 
