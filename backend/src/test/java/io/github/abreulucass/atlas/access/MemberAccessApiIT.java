@@ -250,12 +250,14 @@ class MemberAccessApiIT extends AccessITSupport {
 		UUID companyId = company(owner);
 		UUID warehouseId = warehouse(owner, companyId);
 		UUID otherCompany = company(owner);
+		UUID otherWarehouse = warehouse(owner, otherCompany);
 		grantCompanyAs(owner, member.userId(), companyId).andExpect(status().isCreated());
 		grantWarehouseAs(owner, member.userId(), warehouseId).andExpect(status().isCreated());
 		var before = grantRows(owner.organizationId());
 		archiveOrganization(owner.organizationId());
 
 		grantCompanyAs(owner, member.userId(), otherCompany).andExpect(status().isConflict());
+		grantWarehouseAs(owner, member.userId(), otherWarehouse).andExpect(status().isConflict());
 		revokeCompanyAs(owner, member.userId(), companyId).andExpect(status().isConflict());
 		revokeWarehouseAs(owner, member.userId(), warehouseId).andExpect(status().isConflict());
 
