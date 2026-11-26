@@ -123,6 +123,60 @@ class WarehousesIT {
 		assertThat(as(org, () -> warehouses.list(company, false))).containsExactly(expected);
 	}
 
+	UUID member(UUID org, UUID company, UUID warehouse) {
+		UUID user = UUID.randomUUID();
+		app.update("insert into users (id, name, email, password_hash, created_at) values (?, 'M', ?, 'x', now())", user,
+				user + "@example.com");
+		app.update("insert into memberships (id, user_id, organization_id, role, created_at) values (?, ?, ?, 'MEMBER', now())",
+				UUID.randomUUID(), user, org);
+		if (company != null) {
+			asOwnerIn(org, "insert into member_access (id, tenant_id, user_id, company_id, warehouse_id, created_at) values (?, ?, ?, ?, ?, now())",
+					UUID.randomUUID(), org, user, company, warehouse);
+		}
+		return user;
+	}
+
+	@Test
+	void findsWarehouseByIdAlone() throws Exception {
+		UUID org = organization();
+		UUID company = company(org, "Acme");
+		UUID id = as(org, () -> warehouses.create(company, "Main", "A"));
+		UUID archived = seedArchivedWarehouse(org, company, "Old", "B");
+
+		assertThat(as(org, () -> warehouses.find(id))).isEqualTo(new WarehouseView(id, company, "Main", "A", Status.ACTIVE));
+		assertThat(as(org, () -> warehouses.find(archived)).status()).isEqualTo(Status.ARCHIVED);
+		assertThatThrownBy(() -> as(org, () -> warehouses.find(UUID.randomUUID())))
+			.isInstanceOf(WarehouseNotFoundException.class);
+	}
+
+	@Test
+	void findByIdHidesOtherOrganizationsWarehouse() throws Exception {
+		UUID org = organization();
+		UUID other = organization();
+		UUID foreign = as(other, () -> warehouses.create(company(other, "Beta"), "Main", "A"));
+
+		assertThatThrownBy(() -> as(org, () -> warehouses.find(foreign))).isInstanceOf(WarehouseNotFoundException.class);
+	}
+
+	@Test
+	void findByIdFollowsMemberGrants() throws Exception {
+		UUID org = organization();
+		UUID company = company(org, "Acme");
+		UUID granted = as(org, () -> warehouses.create(company, "One", "A"));
+		UUID other = as(org, () -> warehouses.create(company, "Two", "B"));
+		UUID viaWarehouse = member(org, company, granted);
+		UUID viaCompany = member(org, company, null);
+		UUID without = member(org, null, null);
+
+		assertThat(OwnerFixture.callAs(org, viaWarehouse, () -> warehouses.find(granted)).id()).isEqualTo(granted);
+		assertThatThrownBy(() -> OwnerFixture.callAs(org, viaWarehouse, () -> warehouses.find(other)))
+			.isInstanceOf(WarehouseNotFoundException.class);
+		assertThat(OwnerFixture.callAs(org, viaCompany, () -> warehouses.find(granted)).id()).isEqualTo(granted);
+		assertThat(OwnerFixture.callAs(org, viaCompany, () -> warehouses.find(other)).id()).isEqualTo(other);
+		assertThatThrownBy(() -> OwnerFixture.callAs(org, without, () -> warehouses.find(granted)))
+			.isInstanceOf(WarehouseNotFoundException.class);
+	}
+
 	@Test
 	void rejectsInvalidNameAndCode() throws Exception {
 		UUID org = organization();
