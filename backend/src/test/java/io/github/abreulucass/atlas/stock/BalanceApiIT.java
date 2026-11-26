@@ -4,7 +4,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -21,6 +26,9 @@ class BalanceApiIT extends StockITSupport {
 		return getAs(as, path).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
 	}
 
+	record Stocked(String sku, UUID product, String unit, String quantity) {
+	}
+
 	@Test
 	void stockReturnsBalancesOrderedBySkuForEveryRoleThatSeesWarehouse() throws Exception {
 		Scene s = scene();
@@ -32,36 +40,59 @@ class BalanceApiIT extends StockITSupport {
 		record(s.owner(), s.path(), move("IN", c, 2, null));
 		record(s.owner(), s.path(), move("IN", kg, "1.5", null));
 		record(s.owner(), s.path(), move("OUT", b, 1, null));
+		List<Stocked> expected = new ArrayList<>(List.of(new Stocked("A" + suffix, kg, "KG", "1.5"),
+				new Stocked("B" + suffix, b, "UN", "4"), new Stocked("C" + suffix, c, "UN", "2")));
+		// 21 stocked products in all: the default page of 20 must cut the last one off
+		for (int i = 0; i < 18; i++) {
+			String sku = "D%02d%s".formatted(i, suffix);
+			UUID product = createProduct(s.owner(), sku, "UN");
+			record(s.owner(), s.path(), move("IN", product, i + 1, null));
+			expected.add(new Stocked(sku, product, "UN", String.valueOf(i + 1)));
+		}
 		// the product of the scene never moved here, so it is not listed
 		Session admin = joinAs(s.owner(), "ADMIN");
 		Session onWarehouse = memberWithGrant(s.owner(), "warehouseId", s.warehouse());
 		Session onCompany = memberWithGrant(s.owner(), "companyId", s.company());
+		Map<Object, Object> updatedAt = new HashMap<>();
+		ledger(s.owner().organizationId()).balances()
+			.forEach(row -> updatedAt.put(row.get("product_id"), ((Timestamp) row.get("updated_at")).toInstant()));
 
 		for (Session as : List.of(s.owner(), admin, onWarehouse, onCompany)) {
 			String body = get(as, stockPath(s));
-			assertThat(JsonPath.<List<String>>read(body, "$.items[*].sku")).containsExactly("A" + suffix,
-					"B" + suffix, "C" + suffix);
-			assertThat(JsonPath.<List<String>>read(body, "$.items[*].productId")).containsExactly(kg.toString(),
-					b.toString(), c.toString());
-			assertThat(JsonPath.<List<String>>read(body, "$.items[*].name")).containsExactly("Product A" + suffix,
-					"Product B" + suffix, "Product C" + suffix);
-			assertThat(JsonPath.<List<String>>read(body, "$.items[*].unit")).containsExactly("KG", "UN", "UN");
-			assertThat(number(body, "$.items[0].quantity")).isEqualByComparingTo("1.5");
-			assertThat(number(body, "$.items[1].quantity")).isEqualByComparingTo("4");
-			assertThat(number(body, "$.items[2].quantity")).isEqualByComparingTo("2");
-			assertThat((String) JsonPath.read(body, "$.items[0].updatedAt")).isNotBlank();
+			assertPage(body, expected.subList(0, 20), updatedAt);
 			assertThat((Integer) JsonPath.read(body, "$.page")).isZero();
 			assertThat((Integer) JsonPath.read(body, "$.size")).isEqualTo(20);
-			assertThat((Integer) JsonPath.read(body, "$.totalItems")).isEqualTo(3);
-			assertThat((Integer) JsonPath.read(body, "$.totalPages")).isEqualTo(1);
+			assertThat((Integer) JsonPath.read(body, "$.totalItems")).isEqualTo(21);
+			assertThat((Integer) JsonPath.read(body, "$.totalPages")).isEqualTo(2);
+			String last = get(as, stockPath(s) + "?page=1");
+			assertPage(last, expected.subList(20, 21), updatedAt);
+			assertThat((Integer) JsonPath.read(last, "$.page")).isEqualTo(1);
+			assertThat((Integer) JsonPath.read(last, "$.totalItems")).isEqualTo(21);
 		}
 		String second = get(s.owner(), stockPath(s) + "?size=2&page=1");
-		assertThat(JsonPath.<List<String>>read(second, "$.items[*].sku")).containsExactly("C" + suffix);
-		assertThat((Integer) JsonPath.read(second, "$.totalPages")).isEqualTo(2);
+		assertPage(second, expected.subList(2, 4), updatedAt);
+		assertThat((Integer) JsonPath.read(second, "$.totalPages")).isEqualTo(11);
 		// another warehouse of the company has its own balances
 		UUID other = createWarehouse(s.owner(), s.company());
 		String empty = get(s.owner(), "/api/companies/" + s.company() + "/warehouses/" + other + "/stock");
 		assertThat(JsonPath.<List<String>>read(empty, "$.items")).isEmpty();
+	}
+
+	/** Every item field, in order: the SKU, the product, its catalog data, the quantity and the persisted timestamp. */
+	void assertPage(String body, List<Stocked> expected, Map<Object, Object> updatedAt) {
+		assertThat(JsonPath.<List<String>>read(body, "$.items[*].sku")).isEqualTo(
+				expected.stream().map(Stocked::sku).toList());
+		assertThat(JsonPath.<List<String>>read(body, "$.items[*].productId")).isEqualTo(
+				expected.stream().map(e -> e.product().toString()).toList());
+		assertThat(JsonPath.<List<String>>read(body, "$.items[*].name")).isEqualTo(
+				expected.stream().map(e -> "Product " + e.sku()).toList());
+		assertThat(JsonPath.<List<String>>read(body, "$.items[*].unit")).isEqualTo(
+				expected.stream().map(Stocked::unit).toList());
+		for (int i = 0; i < expected.size(); i++) {
+			assertThat(number(body, "$.items[" + i + "].quantity")).isEqualByComparingTo(expected.get(i).quantity());
+			assertThat(Instant.parse(JsonPath.read(body, "$.items[" + i + "].updatedAt")))
+				.isEqualTo(updatedAt.get(expected.get(i).product()));
+		}
 	}
 
 	@Test

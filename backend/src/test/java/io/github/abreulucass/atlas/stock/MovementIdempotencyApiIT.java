@@ -1,6 +1,9 @@
 package io.github.abreulucass.atlas.stock;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.not;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import java.sql.Connection;
@@ -36,15 +39,17 @@ class MovementIdempotencyApiIT extends StockITSupport {
 		String key = key();
 		String json = move("IN", s.product(), 10, "first");
 		String original = sendOk(s.owner(), s.path(), key, json);
+		// the live balance moves on with another key; a replay must still answer the original snapshot
+		sendOk(s.owner(), s.path(), key(), move("IN", s.product(), 5, null));
 		Ledger before = ledger(s.owner().organizationId());
+		assertThat(balanceOf(s.owner().organizationId(), s.warehouse(), s.product())).isEqualByComparingTo("15");
 
+		// the note is stripped before comparison, so a padded note is the same request
 		for (Session as : List.of(s.owner(), admin, member)) {
-			String replay = sendOk(as, s.path(), key, json);
-			assertThat((String) JsonPath.read(replay, "$.id")).isEqualTo(JsonPath.read(original, "$.id"));
-			assertThat(number(replay, "$.balanceAfter")).isEqualByComparingTo("10");
-			assertThat((String) JsonPath.read(replay, "$.createdBy")).isEqualTo(s.owner().userId().toString());
-			assertThat((String) JsonPath.read(replay, "$.createdAt")).isEqualTo(JsonPath.read(original, "$.createdAt"));
+			assertThat(sendOk(as, s.path(), key, json)).isEqualTo(original);
+			assertThat(sendOk(as, s.path(), key, move("IN", s.product(), 10, "  first  "))).isEqualTo(original);
 		}
+		assertThat(number(original, "$.balanceAfter")).isEqualByComparingTo("10");
 		// the path warehouse is resolved before the key: a member who does not see it learns nothing
 		send(stranger, s.path(), key, json).andExpect(status().isNotFound());
 		assertThat(ledger(s.owner().organizationId())).isEqualTo(before);
@@ -71,6 +76,31 @@ class MovementIdempotencyApiIT extends StockITSupport {
 		send(s.owner(), otherPath, key, move("IN", s.product(), 10, "first")).andExpect(status().isUnprocessableContent());
 		// a product id that is not a UUID is a different request, not a 404: the key answers first
 		send(s.owner(), s.path(), key, move("IN", "nope", 10, "first")).andExpect(status().isUnprocessableContent());
+		assertThat(ledger(s.owner().organizationId())).isEqualTo(before);
+	}
+
+	@Test
+	void replayAndKeyReuseAnswerBeforeLaterRules() throws Exception {
+		Scene s = scene();
+		String key = key();
+		sendOk(s.owner(), s.path(), key(), move("IN", s.product(), 10, null));
+		String original = sendOk(s.owner(), s.path(), key, move("OUT", s.product(), 5, null));
+		sendOk(s.owner(), s.path(), key(), move("OUT", s.product(), 5, null));
+		// from here the product is archived and the balance is 0: a new OUT would be refused twice over
+		archive(s.owner(), "/api/products/" + s.product());
+		Ledger before = ledger(s.owner().organizationId());
+
+		// a replay beats 404 product lookup, 400 whole quantity, 409 archived and 409 insufficient: its own result
+		assertThat(sendOk(s.owner(), s.path(), key, move("OUT", s.product(), 5, null))).isEqualTo(original);
+		// 400 body is checked before the key is consulted
+		send(s.owner(), s.path(), key, "{\"type\": \"OUT\"}").andExpect(status().isBadRequest())
+			.andExpect(jsonPath("$.detail").value(not(containsString("different request"))));
+		// key reuse (422) beats 404 product, 400 whole quantity, 409 archived and 409 insufficient
+		for (String json : List.of(move("OUT", UUID.randomUUID(), 5, null), move("OUT", s.product(), "5.5", null),
+				move("OUT", s.product(), 6, null), move("IN", s.product(), 5, null))) {
+			send(s.owner(), s.path(), key, json).andExpect(status().isUnprocessableContent())
+				.andExpect(jsonPath("$.detail").value(containsString("different request")));
+		}
 		assertThat(ledger(s.owner().organizationId())).isEqualTo(before);
 	}
 
@@ -147,12 +177,12 @@ class MovementIdempotencyApiIT extends StockITSupport {
 		String key = key();
 		String json = move("IN", s.product(), 7, null);
 		String original = sendOk(s.owner(), s.path(), key, json);
+		sendOk(s.owner(), s.path(), key(), move("IN", s.product(), 2, null));
 		archive(s.owner(), "/api/products/" + s.product());
 		Ledger before = ledger(s.owner().organizationId());
 
 		for (Session as : List.of(s.owner(), admin)) {
-			String replay = sendOk(as, s.path(), key, json);
-			assertThat((String) JsonPath.read(replay, "$.id")).isEqualTo(JsonPath.read(original, "$.id"));
+			assertThat(sendOk(as, s.path(), key, json)).isEqualTo(original);
 		}
 		// a new key on the archived product is still refused
 		send(s.owner(), s.path(), key(), json).andExpect(status().isConflict());

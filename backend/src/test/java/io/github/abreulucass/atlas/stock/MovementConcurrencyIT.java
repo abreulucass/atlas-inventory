@@ -109,7 +109,7 @@ class MovementConcurrencyIT extends StockITSupport {
 	@Test
 	void concurrentInsLoseNoUpdate() throws Exception {
 		Scene s = scene();
-		record(s.owner(), s.path(), move("IN", s.product(), 10, null));
+		String seed = record(s.owner(), s.path(), move("IN", s.product(), 10, null));
 
 		List<MockHttpServletResponse> responses = underLock(s, ROW, move("IN", s.product(), 3, null),
 				move("IN", s.product(), 4, null));
@@ -119,6 +119,17 @@ class MovementConcurrencyIT extends StockITSupport {
 		assertThat(responses.stream()
 			.map(r -> number(content(r), "$.balanceAfter").doubleValue())
 			.toList()).containsExactlyInAnyOrder(13.0, 17.0);
+		// the ledger holds the seed and both increments, with the ids and balances the responses reported
+		for (MockHttpServletResponse response : responses) {
+			String body = content(response);
+			boolean three = number(body, "$.quantity").compareTo(BigDecimal.valueOf(3)) == 0;
+			assertPersisted(s, s.product(), body, "IN", three ? "3" : "4", number(body, "$.balanceAfter").toPlainString(),
+					s.owner().userId(), null);
+		}
+		assertThat(ledger(s.owner().organizationId()).entries()).extracting(e -> e.get("id").toString())
+			.containsExactlyInAnyOrder((String) JsonPath.read(seed, "$.id"),
+					(String) JsonPath.read(content(responses.get(0)), "$.id"),
+					(String) JsonPath.read(content(responses.get(1)), "$.id"));
 	}
 
 	@Test

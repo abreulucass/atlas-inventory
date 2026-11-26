@@ -94,8 +94,8 @@ class StockSchemaIT {
 
 	UUID seedWarehouse(UUID tenant, UUID company) {
 		UUID id = UUID.randomUUID();
-		asOwnerIn(tenant, "insert into warehouses (id, tenant_id, company_id, name, code) values (?, ?, ?, ?, 'CD')",
-				id, tenant, company, "Warehouse " + id);
+		asOwnerIn(tenant, "insert into warehouses (id, tenant_id, company_id, name, code) values (?, ?, ?, ?, ?)", id,
+				tenant, company, "Warehouse " + id, "CD-" + id.toString().substring(0, 8));
 		return id;
 	}
 
@@ -166,6 +166,19 @@ class StockSchemaIT {
 			.isInstanceOf(DataAccessException.class)
 			.rootCause()
 			.hasMessageContaining("stock_balances_warehouse_fk");
+		// nor at another tenant's product
+		assertThatThrownBy(() -> inTenant(orgA, () -> app.update("""
+				insert into stock_balances (tenant_id, company_id, warehouse_id, product_id, sku, unit, quantity)
+				values (?, ?, ?, ?, 'SKU', 'UN', 1)""", orgA, companyA, warehouseA, productB)))
+			.isInstanceOf(DataAccessException.class)
+			.rootCause()
+			.hasMessageContaining("stock_balances_product_fk");
+		// nor can a movement of this tenant reference a balance that exists only in another tenant
+		assertThatThrownBy(() -> inTenant(orgA, () -> app.update(INSERT_MOVEMENT, UUID.randomUUID(), orgA, companyA,
+				warehouseB, productB, "key-y", userId)))
+			.isInstanceOf(DataAccessException.class)
+			.rootCause()
+			.hasMessageContaining("stock_movements_balance_fk");
 	}
 
 	@Test
@@ -184,6 +197,14 @@ class StockSchemaIT {
 	void databaseRejectsDuplicateIdempotencyKey() throws Exception {
 		assertThatThrownBy(() -> inTenant(orgA, () -> app.update(INSERT_MOVEMENT, UUID.randomUUID(), orgA, companyA,
 				warehouseA, productA, "key-a", userId)))
+			.isInstanceOf(DataAccessException.class)
+			.rootCause()
+			.hasMessageContaining("stock_movements_tenant_key_key");
+		// the key is scoped to the organization, not the warehouse: another stocked warehouse of the tenant refuses it too
+		UUID secondWarehouse = seedWarehouse(orgA, companyA);
+		seedBalance(orgA, companyA, secondWarehouse, productA, 5);
+		assertThatThrownBy(() -> inTenant(orgA, () -> app.update(INSERT_MOVEMENT, UUID.randomUUID(), orgA, companyA,
+				secondWarehouse, productA, "key-a", userId)))
 			.isInstanceOf(DataAccessException.class)
 			.rootCause()
 			.hasMessageContaining("stock_movements_tenant_key_key");

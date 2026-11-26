@@ -59,8 +59,13 @@ abstract class StockITSupport {
 	record Session(String bearer, UUID userId, UUID organizationId) {
 	}
 
-	/** The whole persisted stock state of a tenant: every balance column and the movement count. */
-	record Ledger(List<Map<String, Object>> balances, long movements) {
+	/** The whole persisted stock state of a tenant: every balance row and every movement row. */
+	record Ledger(List<Map<String, Object>> balances, List<Map<String, Object>> entries) {
+
+		long movements() {
+			return entries.size();
+		}
+
 	}
 
 	/** An organization with an owner, a company, a warehouse and a unit product, the base of most scenarios. */
@@ -137,11 +142,44 @@ abstract class StockITSupport {
 			owner.queryForObject("select set_config('app.tenant_id', ?, false)", String.class, tenant.toString());
 			return new Ledger(
 					owner.queryForList("select * from stock_balances order by warehouse_id, product_id"),
-					owner.queryForObject("select count(*) from stock_movements", Long.class));
+					owner.queryForList("select * from stock_movements order by created_at, id"));
 		}
 		finally {
 			connection.destroy();
 		}
+	}
+
+	/** The balance quantity of the pair, as persisted. */
+	BigDecimal balanceOf(UUID tenant, UUID warehouse, UUID product) {
+		return ledger(tenant).balances()
+			.stream()
+			.filter(b -> b.get("warehouse_id").equals(warehouse) && b.get("product_id").equals(product))
+			.map(b -> (BigDecimal) b.get("quantity"))
+			.findFirst()
+			.orElseThrow();
+	}
+
+	/** Asserts the response body is backed by exactly one persisted ledger entry with the same id and fields. */
+	void assertPersisted(Scene s, UUID product, String body, String type, String quantity, String balanceAfter,
+			UUID by, String note) {
+		UUID id = UUID.fromString(JsonPath.read(body, "$.id"));
+		List<Map<String, Object>> found = ledger(s.owner().organizationId()).entries()
+			.stream()
+			.filter(e -> e.get("id").equals(id))
+			.toList();
+		org.assertj.core.api.Assertions.assertThat(found).hasSize(1);
+		Map<String, Object> entry = found.get(0);
+		org.assertj.core.api.Assertions.assertThat(entry)
+			.containsEntry("type", type)
+			.containsEntry("product_id", product)
+			.containsEntry("warehouse_id", s.warehouse())
+			.containsEntry("company_id", s.company())
+			.containsEntry("tenant_id", s.owner().organizationId())
+			.containsEntry("created_by", by)
+			.containsEntry("note", note);
+		org.assertj.core.api.Assertions.assertThat((BigDecimal) entry.get("quantity")).isEqualByComparingTo(quantity);
+		org.assertj.core.api.Assertions.assertThat((BigDecimal) entry.get("balance_after"))
+			.isEqualByComparingTo(balanceAfter);
 	}
 
 	void archiveOrganization(UUID organizationId) {
@@ -169,10 +207,14 @@ abstract class StockITSupport {
 	}
 
 	UUID createWarehouse(Session as, UUID company) throws Exception {
+		return createWarehouse(as, company, "W" + ++codes);
+	}
+
+	UUID createWarehouse(Session as, UUID company, String code) throws Exception {
 		return createdId(mvc.perform(post("/api/companies/" + company + "/warehouses")
 			.header("Authorization", as.bearer())
 			.contentType(MediaType.APPLICATION_JSON)
-			.content("{\"name\": \"Warehouse %s\", \"code\": \"W%d\"}".formatted(UUID.randomUUID(), ++codes))));
+			.content("{\"name\": \"Warehouse %s\", \"code\": \"%s\"}".formatted(UUID.randomUUID(), code))));
 	}
 
 	private UUID createdId(ResultActions result) throws Exception {

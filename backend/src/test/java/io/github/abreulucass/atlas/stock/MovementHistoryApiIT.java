@@ -25,6 +25,10 @@ class MovementHistoryApiIT extends StockITSupport {
 		return JsonPath.read(page, "$.items[*].id");
 	}
 
+	String stockPath(Scene s) {
+		return s.path().replace("/movements", "/stock");
+	}
+
 	String get(Session as, String path) throws Exception {
 		return getAs(as, path).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
 	}
@@ -87,21 +91,21 @@ class MovementHistoryApiIT extends StockITSupport {
 		assertThat(ids(third)).isEqualTo(newestFirst.subList(4, 5));
 		assertThat((Integer) JsonPath.read(first, "$.totalPages")).isEqualTo(3);
 
-		// same createdAt: the higher id comes first
-		asOwnerIn(s.owner().organizationId(), """
-				insert into stock_movements (id, tenant_id, company_id, warehouse_id, product_id, type, quantity,
-				                             balance_after, idempotency_key, created_by, created_at)
-				select ?::uuid, ?, ?, ?, ?, 'IN', 1, 100, 'tie-' || ?::text, ?, now() + interval '1 day'""",
-				"00000000-0000-0000-0000-000000000001", s.owner().organizationId(), s.company(), s.warehouse(),
-				s.product(), "1", s.owner().userId());
-		asOwnerIn(s.owner().organizationId(), """
-				insert into stock_movements (id, tenant_id, company_id, warehouse_id, product_id, type, quantity,
-				                             balance_after, idempotency_key, created_by, created_at)
-				select ?::uuid, ?, ?, ?, ?, 'IN', 1, 100, 'tie-' || ?::text, ?, now() + interval '1 day'""",
-				"00000000-0000-0000-0000-000000000002", s.owner().organizationId(), s.company(), s.warehouse(),
-				s.product(), "2", s.owner().userId());
+		// the very same createdAt on both rows; the higher id is inserted first, so neither insertion order nor
+		// time can order them: only the id tiebreaker can
+		java.time.OffsetDateTime tied = java.time.OffsetDateTime.now().plusDays(1);
+		for (String id : List.of("00000000-0000-0000-0000-000000000002", "00000000-0000-0000-0000-000000000001")) {
+			asOwnerIn(s.owner().organizationId(), """
+					insert into stock_movements (id, tenant_id, company_id, warehouse_id, product_id, type, quantity,
+					                             balance_after, idempotency_key, created_by, created_at)
+					values (?::uuid, ?, ?, ?, ?, 'IN', 1, 100, 'tie-' || ?, ?, ?)""", id, s.owner().organizationId(),
+					s.company(), s.warehouse(), s.product(), id, s.owner().userId(), tied);
+		}
 		assertThat(ids(get(s.owner(), s.path() + "?size=2"))).containsExactly("00000000-0000-0000-0000-000000000002",
 				"00000000-0000-0000-0000-000000000001");
+		assertThat(ids(get(s.owner(), s.path() + "?size=1"))).containsExactly("00000000-0000-0000-0000-000000000002");
+		assertThat(ids(get(s.owner(), s.path() + "?size=1&page=1")))
+			.containsExactly("00000000-0000-0000-0000-000000000001");
 	}
 
 	@Test
@@ -141,6 +145,11 @@ class MovementHistoryApiIT extends StockITSupport {
 				getAs(as, s.path() + "?" + query).andExpect(status().isBadRequest());
 			}
 			getAs(as, s.path() + "?page=0&size=100").andExpect(status().isOk());
+			// the stock listing shares the page rules; productId and type do not apply to it
+			for (String query : List.of("page=-1", "page=x", "page=", "size=0", "size=101", "size=x", "size=")) {
+				getAs(as, stockPath(s) + "?" + query).andExpect(status().isBadRequest());
+			}
+			getAs(as, stockPath(s) + "?page=0&size=100").andExpect(status().isOk());
 		}
 	}
 
@@ -154,6 +163,7 @@ class MovementHistoryApiIT extends StockITSupport {
 		Session onSibling = memberWithGrant(s.owner(), "warehouseId", sibling);
 
 		for (Session as : List.of(none, onSibling)) {
+			getAs(as, stockPath(s)).andExpect(status().isNotFound());
 			getAs(as, s.path()).andExpect(status().isNotFound());
 			getAs(as, s.path() + "/" + idOf(created)).andExpect(status().isNotFound());
 		}
@@ -170,6 +180,8 @@ class MovementHistoryApiIT extends StockITSupport {
 		for (Session as : List.of(s.owner(), admin, member)) {
 			assertThat(ids(get(as, s.path()))).containsExactly(idOf(created));
 			getAs(as, s.path() + "/" + idOf(created)).andExpect(status().isOk());
+			assertThat(JsonPath.<List<String>>read(get(as, stockPath(s)), "$.items[*].productId"))
+				.containsExactly(s.product().toString());
 		}
 
 		// the company archived while its warehouse is active
@@ -179,6 +191,8 @@ class MovementHistoryApiIT extends StockITSupport {
 		for (Session as : List.of(t.owner())) {
 			assertThat(ids(get(as, t.path()))).containsExactly(idOf(made));
 			getAs(as, t.path() + "/" + idOf(made)).andExpect(status().isOk());
+			assertThat(JsonPath.<List<String>>read(get(as, stockPath(t)), "$.items[*].productId"))
+				.containsExactly(t.product().toString());
 		}
 	}
 
@@ -221,6 +235,31 @@ class MovementHistoryApiIT extends StockITSupport {
 				assertThat((Integer) JsonPath.read(body, "$.totalPages")).isEqualTo(1);
 			}
 		}
+	}
+
+	@Test
+	void foreignTenantWarehouseIsNotReadable() throws Exception {
+		Scene mine = scene();
+		Scene foreign = scene();
+		String mineCreated = record(mine.owner(), mine.path(), move("IN", mine.product(), 3, null));
+		String foreignCreated = record(foreign.owner(), foreign.path(), move("IN", foreign.product(), 9, null));
+
+		// the foreign warehouse really holds data, yet none of it is reachable from this tenant by path or id
+		for (String path : List.of(foreign.path(), foreign.path() + "/" + idOf(foreignCreated), stockPath(foreign),
+				"/api/companies/" + mine.company() + "/warehouses/" + foreign.warehouse() + "/movements",
+				"/api/companies/" + mine.company() + "/warehouses/" + foreign.warehouse() + "/stock",
+				"/api/companies/" + foreign.company() + "/warehouses/" + mine.warehouse() + "/stock")) {
+			getAs(mine.owner(), path).andExpect(status().isNotFound());
+		}
+		// a foreign movement id is not found under this tenant's own warehouse either
+		getAs(mine.owner(), mine.path() + "/" + idOf(foreignCreated)).andExpect(status().isNotFound());
+		// and same-tenant reads carry nothing foreign
+		String history = get(mine.owner(), mine.path());
+		assertThat(ids(history)).containsExactly(idOf(mineCreated));
+		assertThat(history).doesNotContain(foreign.product().toString()).doesNotContain(idOf(foreignCreated));
+		String stock = get(mine.owner(), stockPath(mine));
+		assertThat(JsonPath.<List<String>>read(stock, "$.items[*].productId")).containsExactly(mine.product().toString());
+		assertThat(stock).doesNotContain(foreign.product().toString());
 	}
 
 }
