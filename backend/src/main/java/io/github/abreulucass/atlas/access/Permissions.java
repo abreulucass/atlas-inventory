@@ -5,7 +5,6 @@ import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.jdbc.core.simple.JdbcClient;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import io.github.abreulucass.atlas.access.internal.MembershipRepository;
@@ -41,10 +40,7 @@ public class Permissions {
 	 */
 	public Visibility visibility() {
 		UUID tenant = TenantContext.require();
-		// no authenticated user: an in-process call, not a request (the HTTP chain authenticates every read)
-		if (SecurityContextHolder.getContext().getAuthentication() == null) {
-			return Visibility.ALL;
-		}
+		// fails closed: CurrentUser.id() throws without an authenticated user
 		UUID user = CurrentUser.id();
 		boolean member = memberships.findByUserIdAndOrganizationId(user, tenant)
 			.map(m -> m.getRole() == Role.MEMBER)

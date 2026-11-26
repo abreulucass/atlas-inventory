@@ -24,8 +24,8 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import com.jayway.jsonpath.JsonPath;
 
+import io.github.abreulucass.atlas.OwnerFixture;
 import io.github.abreulucass.atlas.TestcontainersConfiguration;
-import io.github.abreulucass.atlas.access.TenantContext;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -108,7 +108,7 @@ class CompanyApiIT {
 	}
 
 	UUID seed(Session in, String name, String cnpj) throws Exception {
-		return TenantContext.callAs(in.organizationId(), () -> companies.create(name, cnpj));
+		return OwnerFixture.callAs(in.organizationId(), in.userId(), () -> companies.create(name, cnpj));
 	}
 
 	// RLS is forced on the owner too, so it seeds inside the tenant it writes to
@@ -146,7 +146,7 @@ class CompanyApiIT {
 	}
 
 	int countCompanies(Session in) throws Exception {
-		return TenantContext.callAs(in.organizationId(), () -> companies.list(true).size());
+		return OwnerFixture.callAs(in.organizationId(), in.userId(), () -> companies.list(true).size());
 	}
 
 	static ResultActions problem(ResultActions result, int status) throws Exception {

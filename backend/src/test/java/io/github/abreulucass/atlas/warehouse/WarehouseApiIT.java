@@ -23,8 +23,8 @@ import org.springframework.test.web.servlet.ResultActions;
 
 import com.jayway.jsonpath.JsonPath;
 
+import io.github.abreulucass.atlas.OwnerFixture;
 import io.github.abreulucass.atlas.TestcontainersConfiguration;
-import io.github.abreulucass.atlas.access.TenantContext;
 import io.github.abreulucass.atlas.company.Companies;
 
 @SpringBootTest
@@ -112,11 +112,11 @@ class WarehouseApiIT {
 	}
 
 	UUID seedCompany(Session in, String name) throws Exception {
-		return TenantContext.callAs(in.organizationId(), () -> companies.create(name, null));
+		return OwnerFixture.callAs(in.organizationId(), in.userId(), () -> companies.create(name, null));
 	}
 
 	UUID seed(Session in, UUID company, String name, String code) throws Exception {
-		return TenantContext.callAs(in.organizationId(), () -> warehouses.create(company, name, code));
+		return OwnerFixture.callAs(in.organizationId(), in.userId(), () -> warehouses.create(company, name, code));
 	}
 
 	// RLS is forced on the owner too, so it seeds inside the tenant it writes to
