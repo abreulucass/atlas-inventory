@@ -18,6 +18,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import io.github.abreulucass.atlas.catalog.CategoryView;
 import io.github.abreulucass.atlas.catalog.Categories;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
 
 @RestController
 @RequestMapping("/api/categories")
@@ -39,6 +41,7 @@ class CategoryController {
 		return categories.find(id);
 	}
 
+	@io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(mediaType = "application/json", schema = @Schema(implementation = CategoryCreateBody.class)))
 	@PostMapping
 	ResponseEntity<CategoryView> create(@RequestBody(required = false) @Nullable String body) {
 		UUID id = categories.createFromBody(body);

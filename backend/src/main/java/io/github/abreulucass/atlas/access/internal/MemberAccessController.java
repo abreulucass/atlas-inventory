@@ -13,6 +13,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+
 /** Ids and the grant body stay raw: {@link MemberAccess} judges them in the spec's order. */
 @RestController
 @RequestMapping("/api/members/{userId}/access")
@@ -29,6 +32,7 @@ class MemberAccessController {
 		return access.list(userId);
 	}
 
+	@io.swagger.v3.oas.annotations.parameters.RequestBody(content = @Content(mediaType = "application/json", schema = @Schema(implementation = GrantBody.class)))
 	@PostMapping
 	ResponseEntity<GrantView> grant(@PathVariable String userId, @RequestBody(required = false) @Nullable String body) {
 		// raw body: decoding it is the last judgement of the grant, after 403, 409 and 404
