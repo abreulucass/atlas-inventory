@@ -80,6 +80,7 @@ class MemberAccessApiIT extends AccessITSupport {
 					tuple(member.userId(), companyId, second));
 	}
 
+	/** C6: a MEMBER is refused on themselves and on others, for grant and both revokes. */
 	@Test
 	void memberCannotGrantOrRevoke() throws Exception {
 		Session owner = register("Olga");
@@ -87,14 +88,20 @@ class MemberAccessApiIT extends AccessITSupport {
 		Session other = join(owner, "MEMBER");
 		UUID companyId = company(owner);
 		UUID warehouseId = warehouse(owner, companyId);
-		grantCompanyAs(owner, other.userId(), companyId).andExpect(status().isCreated());
-		grantWarehouseAs(owner, other.userId(), warehouseId).andExpect(status().isCreated());
+		UUID spareCompany = company(owner);
+		UUID spareWarehouse = warehouse(owner, spareCompany);
+		for (Session grantee : List.of(member, other)) {
+			grantCompanyAs(owner, grantee.userId(), companyId).andExpect(status().isCreated());
+			grantWarehouseAs(owner, grantee.userId(), warehouseId).andExpect(status().isCreated());
+		}
 		var before = grantRows(owner.organizationId());
 
-		grantCompanyAs(member, other.userId(), company(owner)).andExpect(status().isForbidden());
-		grantWarehouseAs(member, member.userId(), warehouseId).andExpect(status().isForbidden());
-		revokeCompanyAs(member, other.userId(), companyId).andExpect(status().isForbidden());
-		revokeWarehouseAs(member, other.userId(), warehouseId).andExpect(status().isForbidden());
+		for (Session target : List.of(member, other)) {
+			grantCompanyAs(member, target.userId(), spareCompany).andExpect(status().isForbidden());
+			grantWarehouseAs(member, target.userId(), spareWarehouse).andExpect(status().isForbidden());
+			revokeCompanyAs(member, target.userId(), companyId).andExpect(status().isForbidden());
+			revokeWarehouseAs(member, target.userId(), warehouseId).andExpect(status().isForbidden());
+		}
 
 		assertThat(grantRows(owner.organizationId())).isEqualTo(before);
 	}
