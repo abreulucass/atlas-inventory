@@ -1,12 +1,13 @@
 # Atlas Inventory
 
 [![Backend](https://github.com/abreulucass/atlas-inventory/actions/workflows/backend.yml/badge.svg)](https://github.com/abreulucass/atlas-inventory/actions/workflows/backend.yml)
+[![Frontend](https://github.com/abreulucass/atlas-inventory/actions/workflows/frontend.yml/badge.svg)](https://github.com/abreulucass/atlas-inventory/actions/workflows/frontend.yml)
 [![Security](https://github.com/abreulucass/atlas-inventory/actions/workflows/security.yml/badge.svg)](https://github.com/abreulucass/atlas-inventory/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 Plataforma de gestão de estoque multiempresa e multidepósito, com foco em consistência de dados e regras de negócio complexas.
 
-> Em desenvolvimento: o backend do MVP está completo e testado; o frontend é o próximo passo.
+> Em desenvolvimento: o backend do MVP está completo e testado; o frontend tem o esqueleto e a autenticação (cadastro, login, logout e o shell autenticado); as telas de domínio vêm a seguir.
 
 ## Por que este projeto
 
@@ -21,6 +22,7 @@ Estoque é um domínio em que erros custam dinheiro: duas reservas simultâneas 
 - Movimentações de estoque idempotentes (entrada, saída, ajuste) e saldos por depósito.
 - Transferências atômicas entre depósitos, com vários itens.
 - Isolamento multi-tenant com RLS forçada no PostgreSQL.
+- Frontend (Next.js): cadastro, login, logout e shell autenticado com sessão em cookies httpOnly.
 
 ## Roadmap
 
@@ -59,9 +61,30 @@ export ATLAS_API_DOCS_ENABLED=true   # opcional: publica o OpenAPI; desligado po
 
 Com `ATLAS_API_DOCS_ENABLED=true`, o Swagger UI fica em `http://localhost:8080/swagger-ui.html` e o documento OpenAPI em `http://localhost:8080/v3/api-docs`, ambos sem token. Sem a variável, respondem `404`.
 
+### Frontend
+
+Requisitos: Node 24, e o backend rodando como acima.
+
+```bash
+cd frontend
+npm ci
+cp .env.example .env.local    # ATLAS_API_URL=http://localhost:8080 (só no servidor, sem prefixo NEXT_PUBLIC_)
+npm run dev                   # http://localhost:3000
+npm run lint && npm run typecheck && npm test   # lint, tipos e Vitest
+npm run build && npm run check:bundle           # build e verificação de que o bundle não vaza a URL da API
+npm run test:e2e              # Playwright contra o backend real; compila e sobe o app sozinho
+```
+
 ### Frontend e CORS
 
-O frontend (Next.js) chega à API por um BFF: os route handlers do Next chamam o backend no servidor e guardam os tokens em cookies httpOnly. O navegador nunca fala direto com a API, então o backend não tem CORS, de propósito.
+O frontend (Next.js) chega à API por um BFF feito de `proxy.ts` e Server Actions, sem repasse genérico da API:
+
+- Login, cadastro e logout são Server Actions que chamam `POST /api/auth/*` no servidor e guardam os tokens em cookies `HttpOnly`, `SameSite=Lax` (e `Secure` em produção). Nenhum token chega ao JavaScript da página, a um corpo de resposta ou ao bundle.
+- O `proxy.ts` protege as rotas e renova a sessão: com o access token expirado e o refresh presente, chama `POST /api/auth/refresh` uma vez por refresh token (chamadas simultâneas reaproveitam o resultado, porque reusar um refresh token revoga a família no backend) e grava o novo par nos cookies. Um refresh rejeitado limpa a sessão e volta para `/entrar`.
+- As leituras (`GET /api/me`) acontecem nos Server Components, com o `Bearer` lido do cookie.
+- Server Actions só aceitam `POST` e recusam `Origin` diferente do `Host`, o que barra requisições de outras origens.
+
+O navegador nunca fala direto com a API, então o backend não tem CORS, de propósito. A renovação em memória vale para uma instância do frontend; com mais de uma, o controle precisa de um armazenamento compartilhado.
 
 ### Autenticação
 
