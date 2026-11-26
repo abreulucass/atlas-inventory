@@ -33,13 +33,13 @@ public class MovementRepository {
 		});
 	}
 
-	private static final String COLUMNS = "id, warehouse_id, product_id, type, quantity, balance_after, note, created_by, created_at";
+	private static final String COLUMNS = "id, warehouse_id, product_id, type, quantity, balance_after, note, created_by, created_at, transfer_id";
 
 	private static final RowMapper<MovementView> VIEW = (rs, i) -> new MovementView(rs.getObject("id", UUID.class),
 			rs.getObject("warehouse_id", UUID.class), rs.getObject("product_id", UUID.class),
 			MovementType.valueOf(rs.getString("type")), rs.getBigDecimal("quantity"), rs.getBigDecimal("balance_after"),
 			rs.getString("note"), rs.getObject("created_by", UUID.class),
-			rs.getObject("created_at", OffsetDateTime.class).toInstant());
+			rs.getObject("created_at", OffsetDateTime.class).toInstant(), rs.getObject("transfer_id", UUID.class));
 
 	public Optional<MovementView> findByKey(UUID tenant, String key) {
 		return jdbc.sql("select " + COLUMNS + " from stock_movements where tenant_id = :t and idempotency_key = :key")
@@ -111,7 +111,7 @@ public class MovementRepository {
 			.single();
 		// scale 3 like the stored column, so a replay answers the very same JSON as the original
 		return new MovementView(id, warehouseId, productId, request.type(), request.delta().setScale(3), balanceAfter,
-				request.note(), user, createdAt.toInstant());
+				request.note(), user, createdAt.toInstant(), null);
 	}
 
 	/** Inserts one half of a transfer: no client key, linked to {@code transferId}. */

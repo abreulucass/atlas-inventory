@@ -131,7 +131,7 @@ public class Movements {
 				movementType = MovementType.valueOf(type);
 			}
 			catch (IllegalArgumentException e) {
-				throw new InvalidMovementException("type must be IN, OUT or ADJUSTMENT");
+				throw new InvalidMovementException("type must be IN, OUT, ADJUSTMENT, TRANSFER_OUT or TRANSFER_IN");
 			}
 		}
 		long totalItems = movements.count(tenant, warehouse, product, movementType);

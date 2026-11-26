@@ -94,6 +94,68 @@ class TransferReadIT extends TransferITSupport {
 	}
 
 	@Test
+	void movementsCarryTransferId() throws Exception {
+		TScene s = tscene();
+		String created = transferWithNote(s, s.w1(), s.w2());
+		String transferId = JsonPath.read(created, "$.id");
+		record(s.owner(), s.movements(s.companyA(), s.w1()), move("OUT", s.p1(), 1, null));
+		record(s.owner(), s.movements(s.companyA(), s.w1()), move("ADJUSTMENT", s.p1(), 2, "recount"));
+
+		for (Session as : List.of(s.owner(), joinAs(s.owner(), "ADMIN"), memberWith(s, "warehouseId", s.w1(), s.w2()))) {
+			for (UUID warehouse : List.of(s.w1(), s.w2())) {
+				String path = s.movements(s.companyA(), warehouse);
+				String page = getAs(as, path + "?size=100").andExpect(status().isOk())
+					.andReturn()
+					.getResponse()
+					.getContentAsString();
+				List<String> ids = JsonPath.read(page, "$.items[*].id");
+				List<String> types = JsonPath.read(page, "$.items[*].type");
+				List<String> transfers = JsonPath.read(page, "$.items[*].transferId");
+				assertThat(ids).isNotEmpty().hasSameSizeAs(types);
+				for (int i = 0; i < ids.size(); i++) {
+					boolean transferType = types.get(i).startsWith("TRANSFER_");
+					Object linked = JsonPath.read(page, "$.items[" + i + "].transferId");
+					assertThat(linked).isEqualTo(transferType ? transferId : null);
+					String single = getAs(as, path + "/" + ids.get(i)).andExpect(status().isOk())
+						.andReturn()
+						.getResponse()
+						.getContentAsString();
+					assertThat(JsonPath.<Object>read(single, "$.transferId")).isEqualTo(transferType ? transferId : null);
+				}
+				assertThat(transfers).hasSameSizeAs(ids);
+			}
+		}
+		// the movements recorded before the transfer (stock IN) carry null too
+		String origin = getAs(s.owner(), s.movements(s.companyA(), s.w1()) + "?type=IN").andReturn()
+			.getResponse()
+			.getContentAsString();
+		assertThat(JsonPath.<List<Object>>read(origin, "$.items[*].transferId")).containsOnlyNulls().isNotEmpty();
+	}
+
+	@Test
+	void historyFiltersByTransferTypes() throws Exception {
+		TScene s = tscene();
+		transferWithNote(s, s.w1(), s.w2());
+		transferWithNote(s, s.w2(), s.w1());
+
+		for (Session as : List.of(s.owner(), joinAs(s.owner(), "ADMIN"), memberWith(s, "warehouseId", s.w1(), s.w2()))) {
+			for (UUID warehouse : List.of(s.w1(), s.w2())) {
+				for (String type : List.of("TRANSFER_OUT", "TRANSFER_IN")) {
+					String page = getAs(as, s.movements(s.companyA(), warehouse) + "?type=" + type)
+						.andExpect(status().isOk())
+						.andReturn()
+						.getResponse()
+						.getContentAsString();
+					// each warehouse sent and received one transfer of two items
+					assertThat(JsonPath.<List<String>>read(page, "$.items[*].type")).hasSize(2).containsOnly(type);
+					assertThat(JsonPath.<Integer>read(page, "$.totalItems")).isEqualTo(2);
+				}
+			}
+		}
+		getAs(s.owner(), s.movements(s.companyA(), s.w1()) + "?type=BOGUS").andExpect(status().isBadRequest());
+	}
+
+	@Test
 	void archivedResourcesKeepTransferReadable() throws Exception {
 		TScene s = tscene();
 		String created = transferWithNote(s, s.w1(), s.w2());
