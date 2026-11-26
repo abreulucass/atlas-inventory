@@ -153,8 +153,10 @@ class ProductApiIT extends CatalogITSupport {
 				.andExpect(jsonPath("$.fractional").value(true));
 		}
 		for (String unit : List.of("UN", "CX", "PC")) {
-			UUID id = createProduct(owner, "W-" + unit, "Item", unit);
-			getAs(owner, "/api/products/" + id).andExpect(jsonPath("$.fractional").value(false));
+			postJson(owner, "/api/products", product("W-" + unit, "Item", unit)).andExpect(status().isCreated())
+				.andExpect(jsonPath("$.fractional").value(false));
+			getAs(owner, "/api/products/" + createProduct(owner, "V-" + unit, "Item", unit))
+				.andExpect(jsonPath("$.fractional").value(false));
 		}
 	}
 
@@ -347,12 +349,14 @@ class ProductApiIT extends CatalogITSupport {
 		Session owner = register();
 		Session other = register();
 		UUID foreign = createProduct(other, "FOREIGN", "Foreign", "UN");
+		UUID foreignArchived = seedProduct(other.organizationId(), "FOREIGN-OLD", "Old", "UN", null, true);
 		List<Map<String, Object>> before = rows(other.organizationId(), "products");
 
 		for (String id : List.of(foreign.toString(), UUID.randomUUID().toString(), "not-a-uuid", "1-1-1-1-1")) {
 			postEmpty(owner, "/api/products/" + id + "/archive").andExpect(status().isNotFound());
 			postEmpty(owner, "/api/products/" + id + "/unarchive").andExpect(status().isNotFound());
 		}
+		postEmpty(owner, "/api/products/" + foreignArchived + "/unarchive").andExpect(status().isNotFound());
 		assertThat(rows(other.organizationId(), "products")).isEqualTo(before);
 	}
 

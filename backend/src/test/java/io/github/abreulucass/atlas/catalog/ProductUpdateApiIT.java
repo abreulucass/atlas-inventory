@@ -44,6 +44,11 @@ class ProductUpdateApiIT extends CatalogITSupport {
 			.andExpect(jsonPath("$.name").value("Maul"))
 			.andExpect(jsonPath("$.version").value(2));
 		assertThat(row(owner.organizationId(), id)).containsEntry("name", "Maul").containsEntry("version", 2L);
+
+		// a same-value body is still an edit
+		patchJson(owner, path(id), "{\"version\": 2, \"name\": \"Maul\"}").andExpect(status().isOk())
+			.andExpect(jsonPath("$.version").value(3));
+		assertThat(row(owner.organizationId(), id)).containsEntry("name", "Maul").containsEntry("version", 3L);
 	}
 
 	@Test
@@ -115,8 +120,15 @@ class ProductUpdateApiIT extends CatalogITSupport {
 	@Test
 	void concurrentEditLosesWith409() throws Exception {
 		Session owner = register();
+		// a dirty edit and a same-value body both lose to the winner
+		losesRace(owner, "A1", "{\"version\": 0, \"name\": \"Mine\"}");
+		losesRace(owner, "A2", "{\"version\": 0, \"name\": \"Hammer\"}");
+		losesRace(owner, "A3", "{\"version\": 0, \"categoryId\": null}");
+	}
+
+	void losesRace(Session owner, String sku, String body) throws Exception {
 		UUID tenant = owner.organizationId();
-		UUID id = createProduct(owner, "A1", "Hammer", "UN");
+		UUID id = createProduct(owner, sku, "Hammer", "UN");
 		ExecutorService pool = Executors.newSingleThreadExecutor();
 		try (java.sql.Connection concurrent = java.sql.DriverManager.getConnection(url, ownerUser, ownerPassword)) {
 			// the concurrent edit: bumps the version and holds the row lock until committed
@@ -137,7 +149,7 @@ class ProductUpdateApiIT extends CatalogITSupport {
 				transaction = rs.getLong(1);
 			}
 
-			Callable<Integer> patch = () -> patchJson(owner, path(id), "{\"version\": 0, \"name\": \"Mine\"}")
+			Callable<Integer> patch = () -> patchJson(owner, path(id), body)
 				.andReturn()
 				.getResponse()
 				.getStatus();
@@ -204,6 +216,10 @@ class ProductUpdateApiIT extends CatalogITSupport {
 		patchJson(owner, path(id), "{\"version\": 0, \"name\": \"Mallet\", \"unit\": \"KG\"}")
 			.andExpect(status().isBadRequest());
 		patchJson(owner, path(id), "{\"version\": 0, \"sku\": \"A1\"}").andExpect(status().isBadRequest());
+		patchJson(owner, path(id), "{\"version\": 0, \"name\": \"Mallet\", \"sku\": null}")
+			.andExpect(status().isBadRequest());
+		patchJson(owner, path(id), "{\"version\": 0, \"name\": \"Mallet\", \"unit\": null}")
+			.andExpect(status().isBadRequest());
 
 		assertThat(row(owner.organizationId(), id)).isEqualTo(before);
 	}

@@ -1,11 +1,13 @@
 package io.github.abreulucass.atlas.catalog;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
+import jakarta.persistence.EntityManager;
 import org.jspecify.annotations.Nullable;
 import org.springframework.core.NestedExceptionUtils;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -45,8 +47,11 @@ public class Products {
 
 	private final Permissions permissions;
 
+	private final EntityManager entityManager;
+
 	Products(ProductRepository repository, Categories categories, Organizations organizations,
-			Permissions permissions) {
+			Permissions permissions, EntityManager entityManager) {
+		this.entityManager = entityManager;
 		this.repository = repository;
 		this.categories = categories;
 		this.organizations = organizations;
@@ -110,8 +115,26 @@ public class Products {
 			product.rename(name);
 		}
 		product.moveTo(categoryId);
-		flush(product);
+		if (entityManager.unwrap(org.hibernate.Session.class).isDirty()) {
+			flush(product);
+		}
+		else {
+			// a same-value body leaves the row clean and dirty checking would write nothing; the guarded bump keeps it an edit
+			bumpVersion(product, version.longValue());
+		}
 		return view(product);
+	}
+
+	private void bumpVersion(Product product, long expected) {
+		int updated = entityManager
+			.createQuery("update Product p set p.version = p.version + 1 where p.id = :id and p.version = :version")
+			.setParameter("id", product.getId())
+			.setParameter("version", expected)
+			.executeUpdate();
+		if (updated == 0) {
+			throw new StaleProductVersionException(product.getId());
+		}
+		entityManager.refresh(product);
 	}
 
 	@Transactional
@@ -151,7 +174,7 @@ public class Products {
 	public ProductPage list(@Nullable String page, @Nullable String size, @Nullable String q,
 			@Nullable String categoryId, @Nullable String status) {
 		TenantContext.require();
-		int pageNumber = number(page, "page", 0, 0, Integer.MAX_VALUE);
+		BigInteger pageNumber = pageNumber(page);
 		int pageSize = number(size, "size", 20, 1, 100);
 		String filter = status == null ? "ACTIVE" : status;
 		if (!List.of("ACTIVE", "ARCHIVED", "ALL").contains(filter)) {
@@ -167,16 +190,33 @@ public class Products {
 		Specification<Product> where = matching(filter, category, q == null ? "" : q.strip());
 		long totalItems;
 		List<ProductView> items = List.of();
-		if ((long) pageNumber * pageSize > Integer.MAX_VALUE) {
+		if (pageNumber.multiply(BigInteger.valueOf(pageSize)).compareTo(BigInteger.valueOf(Integer.MAX_VALUE)) > 0) {
 			// past any real catalog, and beyond the int offset of the query
 			totalItems = repository.count(where);
 		}
 		else {
-			var found = repository.findAll(where, PageRequest.of(pageNumber, pageSize));
+			var found = repository.findAll(where, PageRequest.of(pageNumber.intValueExact(), pageSize));
 			totalItems = found.getTotalElements();
 			items = found.getContent().stream().map(Products::view).toList();
 		}
 		return new ProductPage(items, pageNumber, pageSize, totalItems, (int) ((totalItems + pageSize - 1) / pageSize));
+	}
+
+	/** Any non-negative integer; a page past the end is just empty. */
+	private static BigInteger pageNumber(@Nullable String text) {
+		if (text != null) {
+			try {
+				BigInteger value = new BigInteger(text);
+				if (value.signum() >= 0) {
+					return value;
+				}
+			}
+			catch (NumberFormatException e) {
+				// falls through to the invalid parameter below
+			}
+			throw new InvalidListParameterException("page must be a non-negative integer");
+		}
+		return BigInteger.ZERO;
 	}
 
 	private static int number(@Nullable String text, String name, int fallback, int min, int max) {

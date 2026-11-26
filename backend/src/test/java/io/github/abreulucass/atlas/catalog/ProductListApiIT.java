@@ -87,7 +87,7 @@ class ProductListApiIT extends CatalogITSupport {
 		seedItems(owner.organizationId(), 3);
 
 		for (String query : List.of("page=-1", "size=0", "size=101", "size=x", "page=x", "page=", "size=", "size=1.5",
-				"page=99999999999")) {
+				"page=1.5", "page=99999999999999999999x")) {
 			getAs(owner, "/api/products?" + query).andExpect(status().isBadRequest());
 		}
 		getAs(owner, "/api/products?page=0&size=1").andExpect(status().isOk());
@@ -183,17 +183,42 @@ class ProductListApiIT extends CatalogITSupport {
 	void listNeverShowsOtherTenant() throws Exception {
 		Session owner = register();
 		Session other = register();
-		seedProduct(owner.organizationId(), "MINE", "Mine", "UN", null, false);
+		UUID org = owner.organizationId();
+		UUID mine = createCategory(owner, "Mine");
+		seedProduct(org, "M-1", "Mine alpha", "UN", mine, false);
+		seedProduct(org, "M-2", "Mine beta", "UN", mine, true);
+		seedProduct(org, "M-3", "Mine gamma", "UN", null, false);
 		UUID foreign = createCategory(other, "Foreign");
-		seedProduct(other.organizationId(), "THEIRS", "Theirs", "UN", foreign, false);
-		seedProduct(other.organizationId(), "THEIRS-OLD", "Theirs old", "UN", foreign, true);
+		seedProduct(other.organizationId(), "THEIRS-1", "Mine alpha theirs", "UN", foreign, false);
+		seedProduct(other.organizationId(), "THEIRS-2", "Mine beta theirs", "UN", foreign, true);
+		seedProduct(other.organizationId(), "THEIRS-3", "Mine", "UN", null, false);
 
-		for (String query : List.of("", "?status=ALL", "?status=ARCHIVED", "?q=theirs", "?q=THEIRS&status=ALL",
-				"?categoryId=" + foreign, "?size=100&page=0")) {
-			assertThat(skus(owner, query)).as(query).doesNotContain("THEIRS", "THEIRS-OLD");
+		String all = "status=ALL";
+		Object[][] table = {
+				{ "", List.of("M-1", "M-3"), 2 },
+				{ "status=ARCHIVED", List.of("M-2"), 1 },
+				{ all, List.of("M-1", "M-2", "M-3"), 3 },
+				{ "q=mine", List.of("M-1", "M-3"), 2 },
+				{ "q=mine&" + all, List.of("M-1", "M-2", "M-3"), 3 },
+				{ "q=THEIRS&" + all, List.of(), 0 },
+				{ "q=theirs", List.of(), 0 },
+				{ "categoryId=" + mine, List.of("M-1"), 1 },
+				{ "categoryId=" + mine + "&" + all, List.of("M-1", "M-2"), 2 },
+				{ "categoryId=" + mine + "&q=mine&" + all, List.of("M-1", "M-2"), 2 },
+				{ "categoryId=" + foreign, List.of(), 0 },
+				{ "categoryId=" + foreign + "&" + all, List.of(), 0 },
+				{ "categoryId=" + foreign + "&q=mine&status=ARCHIVED", List.of(), 0 },
+				{ all + "&size=1&page=0", List.of("M-1"), 3 },
+				{ all + "&size=1&page=2", List.of("M-3"), 3 },
+				{ all + "&size=1&page=3", List.of(), 3 },
+				{ "q=mine&" + all + "&size=2&page=1", List.of("M-3"), 3 },
+				{ "q=mine&" + all + "&size=2&page=2147483648", List.of(), 3 } };
+		for (Object[] row : table) {
+			String query = "?" + row[0];
+			var result = getAs(owner, "/api/products" + query).andExpect(status().isOk())
+				.andExpect(jsonPath("$.totalItems").value(row[2]));
+			assertThat(field(result, "sku")).as(query).containsExactlyElementsOf((List<String>) row[1]);
 		}
-		assertThat(skus(owner, "?status=ALL")).containsExactly("MINE");
-		getAs(owner, "/api/products?status=ALL").andExpect(jsonPath("$.totalItems").value(1));
 	}
 
 	@Test
@@ -218,12 +243,16 @@ class ProductListApiIT extends CatalogITSupport {
 		seedProduct(org, "W3", "a_b", "UN", null, false);
 		seedProduct(org, "W4", "axb", "UN", null, false);
 		seedProduct(org, "W5", "back\\slash", "UN", null, false);
+		seedProduct(org, "AB_1", "Bolt", "UN", null, false);
+		seedProduct(org, "ABX1", "Nut", "UN", null, false);
 
 		assertThat(skus(owner, "?q={q}", "%")).containsExactly("W1");
 		assertThat(skus(owner, "?q={q}", "_")).containsExactly("W3");
 		assertThat(skus(owner, "?q={q}", "a_b")).containsExactly("W3");
 		assertThat(skus(owner, "?q={q}", "\\")).containsExactly("W5");
 		assertThat(skus(owner, "?q={q}", "100%")).containsExactly("W1");
+		assertThat(skus(owner, "?q={q}", "ab_")).containsExactly("AB_1");
+		assertThat(skus(owner, "?q={q}", "ab%")).isEmpty();
 	}
 
 	@Test
@@ -243,6 +272,13 @@ class ProductListApiIT extends CatalogITSupport {
 			.andExpect(jsonPath("$.totalItems").value(25))
 			.andExpect(jsonPath("$.totalPages").value(1));
 		getAs(owner, "/api/products?page=5&size=20").andExpect(jsonPath("$.page").value(5));
+		// any non-negative integer page is valid, however large
+		for (String page : List.of("2147483648", "99999999999", "99999999999999999999999")) {
+			getAs(owner, "/api/products?page=" + page + "&size=1").andExpect(status().isOk())
+				.andExpect(jsonPath("$.items.length()").value(0))
+				.andExpect(jsonPath("$.totalItems").value(25))
+				.andExpect(jsonPath("$.totalPages").value(25));
+		}
 	}
 
 	@Test
