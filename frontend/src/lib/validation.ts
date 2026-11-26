@@ -1,0 +1,81 @@
+// Mirrors the backend rules (AuthService.java, Organizations.java); lengths count code points.
+
+export type RegisterField =
+  | "name"
+  | "email"
+  | "password"
+  | "organizationName"
+  | "organizationSlug";
+export type LoginField = "email" | "password";
+
+export type RegisterInput = Record<RegisterField, string>;
+export type LoginInput = Record<LoginField, string>;
+
+const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+const NAME_MAX = 120;
+const EMAIL_MAX = 254;
+const PASSWORD_MIN = 12;
+const PASSWORD_MAX = 128;
+const SLUG_MIN = 3;
+const SLUG_MAX = 63;
+
+export const MESSAGES = {
+  name: "Informe seu nome, com até 120 caracteres.",
+  email: "Informe um e-mail válido.",
+  pwd: "A senha deve ter de 12 a 128 caracteres.",
+  organizationName: "Informe o nome da organização, com até 120 caracteres.",
+  organizationSlug:
+    "O endereço deve ter de 3 a 63 caracteres: letras minúsculas, números e hífens entre eles.",
+  loginEmail: "Informe seu e-mail.",
+  loginPwd: "Informe sua senha.",
+} as const;
+
+const length = (value: string) => [...value].length;
+
+function validName(value: string) {
+  const trimmed = value.trim();
+  return trimmed !== "" && length(trimmed) <= NAME_MAX;
+}
+
+export function slugify(name: string): string {
+  const cut = name
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, SLUG_MAX);
+  return cut.replace(/-+$/, "");
+}
+
+export function validateRegister(
+  input: RegisterInput,
+): Partial<Record<RegisterField, string>> {
+  const errors: Partial<Record<RegisterField, string>> = {};
+  if (!validName(input.name)) errors.name = MESSAGES.name;
+  const email = input.email.trim();
+  if (email.length > EMAIL_MAX || !EMAIL.test(email)) errors.email = MESSAGES.email;
+  const passwordLength = length(input.password);
+  if (passwordLength < PASSWORD_MIN || passwordLength > PASSWORD_MAX) {
+    errors.password = MESSAGES.pwd;
+  }
+  if (!validName(input.organizationName)) {
+    errors.organizationName = MESSAGES.organizationName;
+  }
+  const slug = input.organizationSlug;
+  if (slug.length < SLUG_MIN || slug.length > SLUG_MAX || !SLUG.test(slug)) {
+    errors.organizationSlug = MESSAGES.organizationSlug;
+  }
+  return errors;
+}
+
+export function validateLogin(
+  input: LoginInput,
+): Partial<Record<LoginField, string>> {
+  const errors: Partial<Record<LoginField, string>> = {};
+  if (input.email.trim() === "") errors.email = MESSAGES.loginEmail;
+  if (input.password === "") errors.password = MESSAGES.loginPwd;
+  return errors;
+}
