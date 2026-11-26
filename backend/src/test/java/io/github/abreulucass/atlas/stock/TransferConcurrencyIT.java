@@ -256,12 +256,14 @@ class TransferConcurrencyIT extends TransferITSupport {
 
 		assertThat(snapshot(s.tenant()).transfers()).isNotEmpty();
 		List<Map<String, Object>> mismatches = owner(s, """
-				select b.warehouse_id, b.product_id, b.quantity, coalesce(sum(m.quantity), 0) as total
-				from stock_balances b
-				left join stock_movements m on m.tenant_id = b.tenant_id and m.warehouse_id = b.warehouse_id
-				     and m.product_id = b.product_id
-				group by b.warehouse_id, b.product_id, b.quantity
-				having b.quantity <> coalesce(sum(m.quantity), 0)""");
+				select warehouse_id, product_id, b.quantity, m.total
+				from (select warehouse_id, product_id, quantity from stock_balances) b
+				full join (select warehouse_id, product_id, sum(quantity) as total from stock_movements
+				           group by warehouse_id, product_id) m using (warehouse_id, product_id)
+				where b.quantity is null or m.total is null or b.quantity <> m.total""");
+		// every slot with a movement has a balance row, and the other way round
+		assertThat(owner(s, "select 1 from stock_movements m where not exists (select 1 from stock_balances b "
+				+ "where b.warehouse_id = m.warehouse_id and b.product_id = m.product_id)")).isEmpty();
 		assertThat(mismatches).isEmpty();
 		assertThat(snapshot(s.tenant()).ledger().balances()).hasSizeGreaterThan(3)
 			.allSatisfy(b -> assertThat((BigDecimal) b.get("quantity")).isGreaterThanOrEqualTo(BigDecimal.ZERO));

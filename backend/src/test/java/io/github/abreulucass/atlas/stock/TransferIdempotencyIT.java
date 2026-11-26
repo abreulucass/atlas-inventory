@@ -80,7 +80,11 @@ class TransferIdempotencyIT extends TransferITSupport {
 		for (Session as : List.of(s.owner(), joinAs(s.owner(), "ADMIN"), memberWith(s, "warehouseId", s.w1(), s.w2(), s.w3()))) {
 			for (String other : List.of(transferBody(s.w1(), s.w3(), "a", s.p1(), 4, s.p2(), 3),
 					transferBody(s.w2(), s.w1(), "a", s.p1(), 4, s.p2(), 3),
+					// only the origin changes (a third warehouse), the destination stays
+					transferBody(s.w3(), s.w2(), "a", s.p1(), 4, s.p2(), 3),
 					transferBody(s.w1(), s.w2(), "a", s.p1(), 5, s.p2(), 3),
+					// only the second quantity changes
+					transferBody(s.w1(), s.w2(), "a", s.p1(), 4, s.p2(), 4),
 					transferBody(s.w1(), s.w2(), "b", s.p1(), 4, s.p2(), 3),
 					transferBody(s.w1(), s.w2(), null, s.p1(), 4, s.p2(), 3),
 					transferBody(s.w1(), s.w2(), "a", s.p1(), 4, s.p2(), 3, p3, 1),

@@ -7,7 +7,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -24,6 +26,34 @@ class TransferReadIT extends TransferITSupport {
 
 	String transferPath(String body) {
 		return "/api/transfers/" + JsonPath.read(body, "$.id");
+	}
+
+	String readOk(Session as, String path) throws Exception {
+		return getAs(as, path).andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+	}
+
+	/** The seeded movements of a warehouse as the owner persisted them: id to transfer id (null for plain ones). */
+	Map<String, String> seeded(TScene s, UUID warehouse) {
+		Map<String, String> expected = new HashMap<>();
+		snapshot(s.tenant()).ledger()
+			.entries()
+			.stream()
+			.filter(e -> e.get("warehouse_id").equals(warehouse))
+			.forEach(e -> expected.put(e.get("id").toString(),
+					e.get("transfer_id") == null ? null : e.get("transfer_id").toString()));
+		return expected;
+	}
+
+	/** History and single reads of the warehouse return exactly the seeded ids, each linked as persisted. */
+	void assertLinks(Session as, TScene s, UUID warehouse, Map<String, String> expected) throws Exception {
+		String path = s.movements(s.companyA(), warehouse);
+		String page = readOk(as, path + "?size=100");
+		assertThat(JsonPath.<List<String>>read(page, "$.items[*].id")).containsExactlyInAnyOrderElementsOf(expected.keySet());
+		for (int i = 0; i < expected.size(); i++) {
+			String id = JsonPath.read(page, "$.items[" + i + "].id");
+			assertThat(JsonPath.<Object>read(page, "$.items[" + i + "].transferId")).isEqualTo(expected.get(id));
+			assertThat(JsonPath.<Object>read(readOk(as, path + "/" + id), "$.transferId")).isEqualTo(expected.get(id));
+		}
 	}
 
 	@Test
@@ -54,14 +84,14 @@ class TransferReadIT extends TransferITSupport {
 		Session onlyDestinationCompany = memberWith(s, "companyId", s.companyB());
 
 		for (Session member : members) {
-			getAs(member, transferPath(within)).andExpect(status().isOk());
+			assertThat(readOk(member, transferPath(within))).isEqualTo(within);
 		}
 		// w1 -> w3: seen from the origin (members 0 and 2) or from the destination company
-		getAs(members.get(0), transferPath(across)).andExpect(status().isOk());
-		getAs(members.get(2), transferPath(across)).andExpect(status().isOk());
-		getAs(onlyDestinationCompany, transferPath(across)).andExpect(status().isOk());
+		assertThat(readOk(members.get(0), transferPath(across))).isEqualTo(across);
+		assertThat(readOk(members.get(2), transferPath(across))).isEqualTo(across);
+		assertThat(readOk(onlyDestinationCompany, transferPath(across))).isEqualTo(across);
 		// a grant to the destination warehouse alone
-		getAs(memberWith(s, "warehouseId", s.w3()), transferPath(across)).andExpect(status().isOk());
+		assertThat(readOk(memberWith(s, "warehouseId", s.w3()), transferPath(across))).isEqualTo(across);
 		// w2 grant sees only its own side of the second transfer
 		getAs(members.get(1), transferPath(across)).andExpect(status().isNotFound());
 	}
@@ -101,28 +131,35 @@ class TransferReadIT extends TransferITSupport {
 		record(s.owner(), s.movements(s.companyA(), s.w1()), move("OUT", s.p1(), 1, null));
 		record(s.owner(), s.movements(s.companyA(), s.w1()), move("ADJUSTMENT", s.p1(), 2, "recount"));
 
+		// the seeded set per side: IN, IN, OUT, ADJUSTMENT and the two transfer OUTs at the origin; the two INs at the destination
+		Map<String, String> originSeed = seeded(s, s.w1());
+		Map<String, String> destinationSeed = seeded(s, s.w2());
+		assertThat(originSeed).hasSize(6);
+		assertThat(originSeed.values().stream().filter(transferId::equals)).hasSize(2);
+		assertThat(destinationSeed).hasSize(2).containsValue(transferId);
+		assertThat(destinationSeed.values()).containsOnly(transferId);
 		for (Session as : List.of(s.owner(), joinAs(s.owner(), "ADMIN"), memberWith(s, "warehouseId", s.w1(), s.w2()))) {
 			for (UUID warehouse : List.of(s.w1(), s.w2())) {
-				String path = s.movements(s.companyA(), warehouse);
-				String page = getAs(as, path + "?size=100").andExpect(status().isOk())
-					.andReturn()
-					.getResponse()
-					.getContentAsString();
-				List<String> ids = JsonPath.read(page, "$.items[*].id");
+				Map<String, String> expected = warehouse.equals(s.w1()) ? originSeed : destinationSeed;
+				assertLinks(as, s, warehouse, expected);
+				String page = readOk(as, s.movements(s.companyA(), warehouse) + "?size=100");
 				List<String> types = JsonPath.read(page, "$.items[*].type");
-				List<String> transfers = JsonPath.read(page, "$.items[*].transferId");
-				assertThat(ids).isNotEmpty().hasSameSizeAs(types);
-				for (int i = 0; i < ids.size(); i++) {
-					boolean transferType = types.get(i).startsWith("TRANSFER_");
-					Object linked = JsonPath.read(page, "$.items[" + i + "].transferId");
-					assertThat(linked).isEqualTo(transferType ? transferId : null);
-					String single = getAs(as, path + "/" + ids.get(i)).andExpect(status().isOk())
-						.andReturn()
-						.getResponse()
-						.getContentAsString();
-					assertThat(JsonPath.<Object>read(single, "$.transferId")).isEqualTo(transferType ? transferId : null);
-				}
-				assertThat(transfers).hasSameSizeAs(ids);
+				assertThat(types).containsExactlyInAnyOrderElementsOf(warehouse.equals(s.w1())
+						? List.of("IN", "IN", "OUT", "ADJUSTMENT", "TRANSFER_OUT", "TRANSFER_OUT")
+						: List.of("TRANSFER_IN", "TRANSFER_IN"));
+			}
+		}
+		// one-sided MEMBERs: the visible warehouse links as persisted, the denied one is hidden (404) on history and single read
+		for (boolean seesOrigin : List.of(true, false)) {
+			Session member = memberWith(s, "warehouseId", seesOrigin ? s.w1() : s.w2());
+			UUID visible = seesOrigin ? s.w1() : s.w2();
+			UUID hidden = seesOrigin ? s.w2() : s.w1();
+			assertLinks(member, s, visible, seesOrigin ? originSeed : destinationSeed);
+			getAs(member, s.movements(s.companyA(), hidden) + "?size=100").andExpect(status().isNotFound());
+			for (String id : (seesOrigin ? destinationSeed : originSeed).keySet()) {
+				getAs(member, s.movements(s.companyA(), hidden) + "/" + id).andExpect(status().isNotFound());
+				// the denied side's id is not readable through the visible warehouse either
+				getAs(member, s.movements(s.companyA(), visible) + "/" + id).andExpect(status().isNotFound());
 			}
 		}
 		// the movements recorded before the transfer (stock IN) carry null too
@@ -140,19 +177,28 @@ class TransferReadIT extends TransferITSupport {
 
 		for (Session as : List.of(s.owner(), joinAs(s.owner(), "ADMIN"), memberWith(s, "warehouseId", s.w1(), s.w2()))) {
 			for (UUID warehouse : List.of(s.w1(), s.w2())) {
-				for (String type : List.of("TRANSFER_OUT", "TRANSFER_IN")) {
-					String page = getAs(as, s.movements(s.companyA(), warehouse) + "?type=" + type)
-						.andExpect(status().isOk())
-						.andReturn()
-						.getResponse()
-						.getContentAsString();
-					// each warehouse sent and received one transfer of two items
-					assertThat(JsonPath.<List<String>>read(page, "$.items[*].type")).hasSize(2).containsOnly(type);
-					assertThat(JsonPath.<Integer>read(page, "$.totalItems")).isEqualTo(2);
-				}
+				assertFiltered(as, s, warehouse);
 			}
 		}
+		// one-sided MEMBERs: the visible warehouse filters as above, the denied one answers 404
+		Session onlyW1 = memberWith(s, "warehouseId", s.w1());
+		Session onlyW2 = memberWith(s, "warehouseId", s.w2());
+		assertFiltered(onlyW1, s, s.w1());
+		assertFiltered(onlyW2, s, s.w2());
+		for (String type : List.of("TRANSFER_OUT", "TRANSFER_IN")) {
+			getAs(onlyW1, s.movements(s.companyA(), s.w2()) + "?type=" + type).andExpect(status().isNotFound());
+			getAs(onlyW2, s.movements(s.companyA(), s.w1()) + "?type=" + type).andExpect(status().isNotFound());
+		}
 		getAs(s.owner(), s.movements(s.companyA(), s.w1()) + "?type=BOGUS").andExpect(status().isBadRequest());
+	}
+
+	void assertFiltered(Session as, TScene s, UUID warehouse) throws Exception {
+		for (String type : List.of("TRANSFER_OUT", "TRANSFER_IN")) {
+			String page = readOk(as, s.movements(s.companyA(), warehouse) + "?type=" + type);
+			// each warehouse sent and received one transfer of two items
+			assertThat(JsonPath.<List<String>>read(page, "$.items[*].type")).hasSize(2).containsOnly(type);
+			assertThat(JsonPath.<Integer>read(page, "$.totalItems")).isEqualTo(2);
+		}
 	}
 
 	@Test
