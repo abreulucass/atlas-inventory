@@ -56,6 +56,30 @@ public class BalanceRepository {
 			.list();
 	}
 
+	public record Slot(UUID warehouseId, UUID productId) {
+	}
+
+	/**
+	 * Locks the existing balance rows of the products in both warehouses in one statement ordered by (warehouse,
+	 * product), and returns their quantities; a missing row is absent from the map. Every path that locks several
+	 * balance rows must use this order, or two transactions can deadlock.
+	 */
+	public java.util.Map<Slot, BigDecimal> lockForTransfer(UUID tenant, UUID from, UUID to,
+			java.util.Collection<UUID> products) {
+		var locked = new java.util.HashMap<Slot, BigDecimal>();
+		jdbc.sql("""
+				select warehouse_id, product_id, quantity from stock_balances
+				where tenant_id = :t and warehouse_id in (:w) and product_id in (:p)
+				order by warehouse_id, product_id for update""")
+			.param("t", tenant)
+			.param("w", List.of(from, to))
+			.param("p", products)
+			.query((rs, i) -> locked.put(new Slot(rs.getObject("warehouse_id", UUID.class),
+					rs.getObject("product_id", UUID.class)), rs.getBigDecimal("quantity")))
+			.list();
+		return locked;
+	}
+
 	/**
 	 * Adds {@code delta} to the balance and returns the new quantity; empty when a negative delta would take it below
 	 * zero (a missing row counts as zero). Call inside the tenant transaction; {@code tenant} comes from

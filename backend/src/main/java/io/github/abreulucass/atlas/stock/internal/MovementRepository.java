@@ -114,4 +114,25 @@ public class MovementRepository {
 				request.note(), user, createdAt.toInstant());
 	}
 
+	/** Inserts one half of a transfer: no client key, linked to {@code transferId}. */
+	public void insertTransfer(UUID tenant, UUID companyId, UUID warehouseId, UUID productId, MovementType type,
+			BigDecimal delta, BigDecimal balanceAfter, @Nullable String note, UUID transferId, UUID user) {
+		jdbc.sql("""
+				insert into stock_movements (id, tenant_id, company_id, warehouse_id, product_id, type, quantity,
+				                             balance_after, note, transfer_id, created_by)
+				values (:id, :t, :c, :w, :p, :type, :q, :after, :note, :transfer, :user)""")
+			.param("id", UUID.randomUUID())
+			.param("t", tenant)
+			.param("c", companyId)
+			.param("w", warehouseId)
+			.param("p", productId)
+			.param("type", type.name())
+			.param("q", delta)
+			.param("after", balanceAfter)
+			.param("note", note)
+			.param("transfer", transferId)
+			.param("user", user)
+			.update();
+	}
+
 }
