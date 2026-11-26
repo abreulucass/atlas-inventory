@@ -376,36 +376,54 @@ class MemberAccessApiIT extends AccessITSupport {
 		assertThat(grantRows(owner.organizationId())).isEmpty();
 	}
 
+	/**
+	 * C29: the removal (the real DELETE) is held on the member's row, a grant queues behind it on the member lock; once
+	 * the removal commits the grant answers 404 and no grant is left. Waiters are found by the backends blocked behind
+	 * the test's own connection, never by a global lock count.
+	 */
 	@Test
 	void grantRacingRemovalLeavesNoGrant() throws Exception {
 		Session owner = register("Olga");
 		Session member = join(owner, "MEMBER");
 		UUID companyId = company(owner);
-		var pool = java.util.concurrent.Executors.newSingleThreadExecutor();
-		try (var memberLock = java.sql.DriverManager.getConnection(url, ownerUser, ownerPassword)) {
-			memberLock.setAutoCommit(false);
-			try (var lock = memberLock.prepareStatement("select pg_advisory_xact_lock(hashtextextended(?, 0))")) {
-				lock.setString(1, "members:" + owner.organizationId());
+		var pool = java.util.concurrent.Executors.newFixedThreadPool(2);
+		try (var rowLock = java.sql.DriverManager.getConnection(url, ownerUser, ownerPassword)) {
+			rowLock.setAutoCommit(false);
+			long testPid;
+			try (var st = rowLock.createStatement()) {
+				var pid = st.executeQuery("select pg_backend_pid()");
+				pid.next();
+				testPid = pid.getLong(1);
+			}
+			try (var lock = rowLock.prepareStatement(
+					"select 1 from memberships where user_id = ? and organization_id = ? for update")) {
+				lock.setObject(1, member.userId());
+				lock.setObject(2, owner.organizationId());
 				lock.executeQuery().close();
 			}
+			// the removal takes the member lock, then waits for the row held above
+			var removal = pool.submit(() -> removeAs(owner, member.userId()).andReturn().getResponse());
+			awaitTrue(() -> blockedBy(testPid).size() == 1, "the removal to wait on the member's row");
+			long removalPid = blockedBy(testPid).get(0);
 			var grant = pool.submit(() -> grantCompanyAs(owner, member.userId(), companyId).andReturn().getResponse());
-			awaitTrue(() -> app.queryForObject(
-					"select count(*) from pg_locks where not granted and locktype = 'advisory'", Integer.class) == 1,
-					"the grant to wait on the member lock");
-			try (var remove = memberLock
-				.prepareStatement("delete from memberships where user_id = ? and organization_id = ?")) {
-				remove.setObject(1, member.userId());
-				remove.setObject(2, owner.organizationId());
-				assertThat(remove.executeUpdate()).isEqualTo(1);
-			}
-			memberLock.commit();
+			awaitTrue(() -> blockedBy(removalPid).size() == 1, "the grant to wait on the member lock");
+			rowLock.commit();
 
+			assertThat(removal.get(30, java.util.concurrent.TimeUnit.SECONDS).getStatus()).isEqualTo(204);
 			assertThat(grant.get(30, java.util.concurrent.TimeUnit.SECONDS).getStatus()).isEqualTo(404);
 		}
 		finally {
 			pool.shutdownNow();
 		}
 		assertThat(grantRows(owner.organizationId())).isEmpty();
+		assertThat(app.queryForObject("select count(*) from memberships where user_id = ? and organization_id = ?",
+				Integer.class, member.userId(), owner.organizationId())).isZero();
+	}
+
+	/** Backends currently blocked by the given backend. */
+	List<Long> blockedBy(long pid) {
+		return app.queryForList("select pid from pg_stat_activity where ? = any(pg_blocking_pids(pid))", Long.class,
+				(int) pid);
 	}
 
 	void awaitTrue(java.util.function.BooleanSupplier condition, String what) throws InterruptedException {
