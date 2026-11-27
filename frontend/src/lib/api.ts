@@ -71,4 +71,5 @@ export const getCompany = (id: string) =>
 export const getWarehouses = (companyId: string, includeArchived = false) =>
   authedGet<Warehouse[]>(
     `/api/companies/${encodeURIComponent(companyId)}/warehouses${archivedQuery(includeArchived)}`,
+    { notFoundOn404: true },
   );

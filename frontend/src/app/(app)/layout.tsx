@@ -21,7 +21,10 @@ async function CurrentOrganization() {
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <SidebarProvider>
-      <AppSidebar />
+      {/* usePathname inside is runtime data: cacheComponents needs it under Suspense on dynamic routes */}
+      <Suspense>
+        <AppSidebar />
+      </Suspense>
       <SidebarInset>
         <header className="flex min-h-14 items-center gap-2 border-b px-4 py-2">
           <SidebarTrigger aria-label="Abrir menu" />
