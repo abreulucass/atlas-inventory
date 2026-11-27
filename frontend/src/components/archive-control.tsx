@@ -13,6 +13,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
+  archiveCategory,
+  archiveProduct,
+  unarchiveCategory,
+  unarchiveProduct,
+} from "@/lib/catalog-actions";
+import {
   archiveCompany,
   archiveWarehouse,
   unarchiveCompany,
@@ -20,14 +26,17 @@ import {
   type ArchiveState,
 } from "@/lib/company-actions";
 
-type Props = {
-  kind: "company" | "warehouse";
-  companyId: string;
-  id?: string;
-  archived: boolean;
-};
+type Props = { archived: boolean } & (
+  | { kind: "company" | "warehouse"; companyId: string; id?: string }
+  | { kind: "category" | "product"; id: string; companyId?: never }
+);
 
-const TITLES = { company: "Arquivar empresa?", warehouse: "Arquivar depósito?" } as const;
+const TITLES = {
+  company: "Arquivar empresa?",
+  warehouse: "Arquivar depósito?",
+  category: "Arquivar categoria?",
+  product: "Arquivar produto?",
+} as const;
 
 export function ArchiveControl({ kind, companyId, id, archived }: Props) {
   const [open, setOpen] = useState(false);
@@ -35,8 +44,10 @@ export function ArchiveControl({ kind, companyId, id, archived }: Props) {
   const [error, setError] = useState<string>();
 
   const call = (archive: boolean): Promise<ArchiveState> => {
-    if (kind === "company") return (archive ? archiveCompany : unarchiveCompany)(companyId);
-    return (archive ? archiveWarehouse : unarchiveWarehouse)(companyId, id ?? "");
+    if (kind === "category") return (archive ? archiveCategory : unarchiveCategory)(id);
+    if (kind === "product") return (archive ? archiveProduct : unarchiveProduct)(id);
+    if (kind === "company") return (archive ? archiveCompany : unarchiveCompany)(companyId ?? "");
+    return (archive ? archiveWarehouse : unarchiveWarehouse)(companyId ?? "", id ?? "");
   };
 
   const run = (archive: boolean) => {

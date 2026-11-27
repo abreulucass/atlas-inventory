@@ -1,11 +1,18 @@
 "use server";
 
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 
-import { field, post, UNAVAILABLE } from "./backend";
-import { ACCESS_COOKIE } from "./session";
+import {
+  accessToken,
+  CHECK_DATA,
+  detailOf,
+  field,
+  FORBIDDEN,
+  ORG_ARCHIVED,
+  post,
+  UNAVAILABLE,
+} from "./backend";
 import { strip, validateCompany, validateWarehouse } from "./validation";
 
 // Never carries a token (SEC-02).
@@ -16,9 +23,6 @@ export type CreateState = {
   values?: Record<string, string>;
 };
 
-const FORBIDDEN = "Seu papel não permite esta operação.";
-const CHECK_DATA = "Verifique os dados informados.";
-const ORG_ARCHIVED = "Esta organização está arquivada.";
 const COMPANY_ARCHIVED = "Esta empresa está arquivada.";
 
 // Backend `detail` prefix -> where the pt-BR message goes (a field name, or "form").
@@ -34,19 +38,6 @@ const DETAILS: [prefix: string, target: string, message: string][] = [
 
 // Never carries a token (SEC-02).
 export type ArchiveState = { ok: true } | { error: string };
-
-async function accessToken(): Promise<string> {
-  const token = (await cookies()).get(ACCESS_COOKIE)?.value;
-  if (!token) redirect("/auth/expired");
-  return token;
-}
-
-async function detailOf(res: Response): Promise<string> {
-  const body: unknown = await res.json().catch(() => null);
-  if (typeof body !== "object" || body === null) return "";
-  const { detail } = body as { detail?: unknown };
-  return typeof detail === "string" ? detail : "";
-}
 
 async function create(
   path: string,

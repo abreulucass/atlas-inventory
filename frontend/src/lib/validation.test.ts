@@ -4,8 +4,11 @@ import {
   normalizeEmail,
   slugify,
   strip,
+  validateCategory,
   validateCompany,
   validateLogin,
+  validateProduct,
+  validateProductEdit,
   validateRegister,
   validateWarehouse,
   type RegisterField,
@@ -224,5 +227,58 @@ describe("validateCompany and validateWarehouse", () => {
     for (const code of ["", "x".repeat(21), "A B", "Á1", "a_b"]) {
       expect(validateWarehouse({ code, name: "N" })).toHaveProperty("code");
     }
+  });
+});
+
+describe("validateCategory", () => {
+  const msg = "Informe um nome de até 80 caracteres.";
+
+  it("rejects a blank or 81-character name and accepts 80", () => {
+    expect(validateCategory({ name: "  " })).toEqual({ name: msg });
+    expect(validateCategory({ name: "a".repeat(81) })).toEqual({ name: msg });
+    expect(validateCategory({ name: "a".repeat(80) })).toEqual({});
+    expect(validateCategory({ name: ` ${"a".repeat(80)} ` })).toEqual({});
+  });
+});
+
+describe("validateProduct", () => {
+  const ok = { sku: "AB-1", name: "Arroz", unit: "KG" };
+  const nameMsg = "Informe um nome de até 200 caracteres.";
+
+  it("rejects an invalid SKU", () => {
+    const msg = "Use até 40 letras, números, ponto, hífen ou sublinhado.";
+    for (const sku of ["", "  ", "a".repeat(41), "a b", "á"]) {
+      expect(validateProduct({ ...ok, sku })).toEqual({ sku: msg });
+    }
+    expect(validateProduct({ ...ok, sku: "ab-1.c_2" })).toEqual({});
+    expect(validateProduct({ ...ok, sku: ` ${"a".repeat(40)} ` })).toEqual({});
+  });
+
+  it("rejects a blank or 201-character name and accepts 200", () => {
+    expect(validateProduct({ ...ok, name: " " })).toEqual({ name: nameMsg });
+    expect(validateProduct({ ...ok, name: "a".repeat(201) })).toEqual({ name: nameMsg });
+    expect(validateProduct({ ...ok, name: "a".repeat(200) })).toEqual({});
+  });
+
+  it("requires a unit", () => {
+    expect(validateProduct({ ...ok, unit: "" })).toEqual({ unit: "Escolha uma unidade." });
+    expect(validateProduct({ ...ok, unit: "XX" })).toEqual({ unit: "Escolha uma unidade." });
+  });
+
+  it("reports every invalid field", () => {
+    expect(Object.keys(validateProduct({ sku: "", name: "", unit: "" })).sort()).toEqual([
+      "name",
+      "sku",
+      "unit",
+    ]);
+  });
+});
+
+describe("validateProductEdit", () => {
+  it("applies the product name rule", () => {
+    const msg = "Informe um nome de até 200 caracteres.";
+    expect(validateProductEdit({ name: "" })).toEqual({ name: msg });
+    expect(validateProductEdit({ name: "a".repeat(201) })).toEqual({ name: msg });
+    expect(validateProductEdit({ name: "a".repeat(200) })).toEqual({});
   });
 });

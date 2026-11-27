@@ -1,6 +1,6 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const actions = {
   archiveCompany: vi.fn(),
@@ -15,10 +15,60 @@ vi.mock("@/lib/company-actions", () => ({
   unarchiveWarehouse: (...a: unknown[]) => actions.unarchiveWarehouse(...a),
 }));
 
+const catalog = {
+  archiveCategory: vi.fn(),
+  unarchiveCategory: vi.fn(),
+  archiveProduct: vi.fn(),
+  unarchiveProduct: vi.fn(),
+};
+vi.mock("@/lib/catalog-actions", () => ({
+  archiveCategory: (...a: unknown[]) => catalog.archiveCategory(...a),
+  unarchiveCategory: (...a: unknown[]) => catalog.unarchiveCategory(...a),
+  archiveProduct: (...a: unknown[]) => catalog.archiveProduct(...a),
+  unarchiveProduct: (...a: unknown[]) => catalog.unarchiveProduct(...a),
+}));
+
+// The real catalog actions run in the lifecycle tests below: only the network edge is faked.
+const edge = vi.hoisted(() => ({ revalidated: [] as string[] }));
+vi.mock("server-only", () => ({}));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: (name: string) => ({ name, value: "tok" }) }),
+}));
+vi.mock("next/navigation", () => ({ redirect: vi.fn() }));
+vi.mock("next/cache", () => ({ revalidatePath: (path: string) => edge.revalidated.push(path) }));
+
 import { ArchiveControl } from "./archive-control";
 
+const fetchMock = vi.fn();
+
+async function realActions() {
+  const real = await vi.importActual<typeof import("@/lib/catalog-actions")>("@/lib/catalog-actions");
+  for (const name of Object.keys(catalog) as (keyof typeof catalog)[]) {
+    catalog[name].mockImplementation((id: string) => real[name](id));
+  }
+  vi.stubGlobal("fetch", fetchMock);
+  vi.stubEnv("ATLAS_API_URL", "http://api.test");
+}
+
+function expectPost(path: string, revalidated: string) {
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  const [url, init] = fetchMock.mock.calls[0];
+  expect(url).toBe(`http://api.test${path}`);
+  expect(init.method).toBe("POST");
+  expect(init.headers.get("Authorization")).toBe("Bearer tok");
+  expect(edge.revalidated).toEqual([revalidated]);
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
 beforeEach(() => {
-  for (const fn of Object.values(actions)) fn.mockReset().mockResolvedValue({ ok: true });
+  fetchMock.mockReset().mockResolvedValue(new Response(null, { status: 204 }));
+  edge.revalidated.length = 0;
+  for (const fn of [...Object.values(actions), ...Object.values(catalog)])
+    fn.mockReset().mockResolvedValue({ ok: true });
 });
 
 const UNAVAILABLE = "Serviço indisponível. Tente novamente em instantes.";
@@ -83,11 +133,39 @@ describe("ArchiveControl", () => {
   });
 
   it("shows the action error", async () => {
-    actions.unarchiveCompany.mockResolvedValue({ error: "Seu papel não permite esta operação." });
     const user = userEvent.setup();
-    render(<ArchiveControl kind="company" companyId="c1" archived />);
-    await user.click(screen.getByRole("button", { name: "Desarquivar" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Seu papel não permite esta operação.");
+    const cases = [
+      [<ArchiveControl key="a" kind="company" companyId="c1" archived />, actions.unarchiveCompany],
+      [<ArchiveControl key="b" kind="category" id="k1" archived />, catalog.unarchiveCategory],
+      [<ArchiveControl key="c" kind="product" id="p1" archived />, catalog.unarchiveProduct],
+    ] as const;
+    for (const [element, spy] of cases) {
+      spy.mockResolvedValue({ error: "Seu papel não permite esta operação." });
+      const { unmount } = render(element);
+      await user.click(screen.getByRole("button", { name: "Desarquivar" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Seu papel não permite esta operação.");
+      unmount();
+    }
+
+    // Archive and unarchive of both catalog kinds show the role and the unavailable messages.
+    for (const [kind, archived, spy] of [
+      ["category", false, catalog.archiveCategory],
+      ["category", true, catalog.unarchiveCategory],
+      ["product", false, catalog.archiveProduct],
+      ["product", true, catalog.unarchiveProduct],
+    ] as const) {
+      for (const message of ["Seu papel não permite esta operação.", UNAVAILABLE]) {
+        spy.mockResolvedValueOnce({ error: message });
+        const { unmount } = render(<ArchiveControl kind={kind} id="x1" archived={archived} />);
+        await user.click(screen.getByRole("button", { name: archived ? "Desarquivar" : "Arquivar" }));
+        if (!archived) {
+          const dialog = await screen.findByRole("alertdialog");
+          await user.click(within(dialog).getByRole("button", { name: "Arquivar" }));
+        }
+        expect(await screen.findByRole("alert")).toHaveTextContent(message);
+        unmount();
+      }
+    }
   });
 });
 
@@ -113,6 +191,131 @@ describe("ArchiveControl error placement", () => {
     );
     for (const message of ["Seu papel não permite esta operação.", UNAVAILABLE]) {
       actions[action].mockResolvedValueOnce({ error: message });
+      const target = within(screen.getByTestId("target"));
+      await user.click(target.getByRole("button", { name: archived ? "Desarquivar" : "Arquivar" }));
+      if (!archived) {
+        const dialog = await screen.findByRole("alertdialog");
+        await user.click(within(dialog).getByRole("button", { name: "Arquivar" }));
+      }
+      expect(await target.findByRole("alert")).toHaveTextContent(message);
+      expect(within(screen.getByTestId("other")).queryByRole("alert")).not.toBeInTheDocument();
+    }
+  });
+});
+
+describe("ArchiveControl", () => {
+  const allSpies = () => [...Object.values(actions), ...Object.values(catalog)];
+
+  it("opens the Arquivar categoria? confirmation", async () => {
+    const user = userEvent.setup();
+    render(<ArchiveControl kind="category" id="k1" archived={false} />);
+    await user.click(screen.getByRole("button", { name: "Arquivar" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Arquivar categoria?" });
+    expect(within(dialog).getByRole("button", { name: "Cancelar" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Arquivar" })).toBeInTheDocument();
+    expect(catalog.archiveCategory).not.toHaveBeenCalled();
+  });
+
+  it("archives a category on confirm and closes", async () => {
+    const user = userEvent.setup();
+    render(<ArchiveControl kind="category" id="k1" archived={false} />);
+    await user.click(screen.getByRole("button", { name: "Arquivar" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Arquivar categoria?" });
+    await user.click(within(dialog).getByRole("button", { name: "Arquivar" }));
+    await waitFor(() => expect(catalog.archiveCategory).toHaveBeenCalledWith("k1"));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+  });
+
+  it("archives a product on confirm and closes", async () => {
+    const user = userEvent.setup();
+    render(<ArchiveControl kind="product" id="p1" archived={false} />);
+    await user.click(screen.getByRole("button", { name: "Arquivar" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Arquivar produto?" });
+    await user.click(within(dialog).getByRole("button", { name: "Arquivar" }));
+    await waitFor(() => expect(catalog.archiveProduct).toHaveBeenCalledWith("p1"));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+
+    // The real action: the POST target and the revalidation.
+    cleanup();
+    await realActions();
+    render(<ArchiveControl kind="product" id="p1" archived={false} />);
+    await user.click(screen.getByRole("button", { name: "Arquivar" }));
+    const again = await screen.findByRole("alertdialog", { name: "Arquivar produto?" });
+    await user.click(within(again).getByRole("button", { name: "Arquivar" }));
+    await waitFor(() => expect(edge.revalidated).toEqual(["/produtos"]));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expectPost("/api/products/p1/archive", "/produtos");
+  });
+
+  it("unarchives a category without confirmation", async () => {
+    const user = userEvent.setup();
+    render(<ArchiveControl kind="category" id="k1" archived />);
+    await user.click(screen.getByRole("button", { name: "Desarquivar" }));
+    await waitFor(() => expect(catalog.unarchiveCategory).toHaveBeenCalledWith("k1"));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+
+    // The real action: the POST target and the revalidation.
+    cleanup();
+    await realActions();
+    render(<ArchiveControl kind="category" id="k1" archived />);
+    await user.click(screen.getByRole("button", { name: "Desarquivar" }));
+    await waitFor(() => expect(edge.revalidated).toEqual(["/categorias"]));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expectPost("/api/categories/k1/unarchive", "/categorias");
+  });
+
+  it("unarchives a product without confirmation", async () => {
+    const user = userEvent.setup();
+    render(<ArchiveControl kind="product" id="p1" archived />);
+    await user.click(screen.getByRole("button", { name: "Desarquivar" }));
+    await waitFor(() => expect(catalog.unarchiveProduct).toHaveBeenCalledWith("p1"));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+
+    // The real action: the POST target and the revalidation.
+    cleanup();
+    await realActions();
+    render(<ArchiveControl kind="product" id="p1" archived />);
+    await user.click(screen.getByRole("button", { name: "Desarquivar" }));
+    await waitFor(() => expect(edge.revalidated).toEqual(["/produtos"]));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expectPost("/api/products/p1/unarchive", "/produtos");
+  });
+
+  it("cancel closes without calling the action for category and product", async () => {
+    const user = userEvent.setup();
+    for (const [kind, title] of [
+      ["category", "Arquivar categoria?"],
+      ["product", "Arquivar produto?"],
+    ] as const) {
+      const { unmount } = render(<ArchiveControl kind={kind} id="x1" archived={false} />);
+      await user.click(screen.getByRole("button", { name: "Arquivar" }));
+      const dialog = await screen.findByRole("alertdialog", { name: title });
+      await user.click(within(dialog).getByRole("button", { name: "Cancelar" }));
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+      for (const spy of allSpies()) expect(spy).not.toHaveBeenCalled();
+      unmount();
+    }
+  });
+
+  it.each([
+    ["category archive", "category", false, "archiveCategory"],
+    ["category unarchive", "category", true, "unarchiveCategory"],
+    ["product archive", "product", false, "archiveProduct"],
+    ["product unarchive", "product", true, "unarchiveProduct"],
+  ] as const)("shows the %s error beside its own control only", async (_l, kind, archived, action) => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <div data-testid="other">
+          <ArchiveControl kind={kind} id="o9" archived={archived} />
+        </div>
+        <div data-testid="target">
+          <ArchiveControl kind={kind} id="t1" archived={archived} />
+        </div>
+      </>,
+    );
+    for (const message of ["Seu papel não permite esta operação.", UNAVAILABLE]) {
+      catalog[action].mockResolvedValueOnce({ error: message });
       const target = within(screen.getByTestId("target"));
       await user.click(target.getByRole("button", { name: archived ? "Desarquivar" : "Arquivar" }));
       if (!archived) {
