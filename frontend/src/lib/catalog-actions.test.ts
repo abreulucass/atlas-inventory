@@ -1,3 +1,8 @@
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -32,6 +37,8 @@ import {
   unarchiveProduct,
   updateProduct,
 } from "./catalog-actions";
+import { CreateCategoryDialog } from "@/components/create-category-dialog";
+import { CreateProductDialog } from "@/components/create-product-dialog";
 import type { ArchiveState, CreateState } from "./company-actions";
 
 const ACCESS = "secret-access-token";
@@ -77,6 +84,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  cleanup();
   // SEC-02: nothing returned to the page carries a token.
   for (const text of [...states.map((s) => JSON.stringify(s)), ...redirects]) {
     expect(text).not.toContain(ACCESS);
@@ -115,6 +123,18 @@ describe("createCategory", () => {
     const state = await track(createCategory({}, category()));
     expect(state.fieldErrors).toEqual({ name: "Já existe uma categoria com este nome." });
     expect(state.values).toEqual({ name: "Bebidas" });
+
+    // Through the real dialog: the message sits under Nome and the dialog stays open.
+    fetchMock.mockResolvedValue(problem(409, "Category name already in use in this organization: Bebidas"));
+    const user = userEvent.setup();
+    render(createElement(CreateCategoryDialog));
+    await user.click(screen.getByRole("button", { name: "Nova categoria" }));
+    await user.type(await screen.findByLabelText("Nome"), "Bebidas");
+    await user.click(screen.getByRole("button", { name: "Criar categoria" }));
+    expect(await screen.findByText("Já existe uma categoria com este nome.")).toBeInTheDocument();
+    expect(screen.getByLabelText("Nome")).toHaveAccessibleDescription("Já existe uma categoria com este nome.");
+    expect(screen.getByLabelText("Nome")).toHaveValue("Bebidas");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 });
 
@@ -133,6 +153,22 @@ describe("createProduct", () => {
 
     await track(createProduct({}, product({ categoryId: "" })));
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).categoryId).toBeNull();
+
+    // Through the real dialog: the same POST, then the dialog closes.
+    fetchMock.mockClear();
+    revalidated.length = 0;
+    fetchMock.mockResolvedValue(created());
+    const user = userEvent.setup();
+    render(createElement(CreateProductDialog, { categories: [] }));
+    await user.click(screen.getByRole("button", { name: "Novo produto" }));
+    await user.type(await screen.findByLabelText("SKU"), " ab-1 ");
+    await user.type(screen.getByLabelText("Nome"), " Água ");
+    await user.selectOptions(screen.getByLabelText("Unidade"), "L");
+    await user.click(screen.getByRole("button", { name: "Criar produto" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/products");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ sku: "ab-1", name: "Água", unit: "L", categoryId: null });
+    expect(revalidated).toEqual(["/produtos"]);
   });
 
   it("sends no request for invalid input", async () => {
