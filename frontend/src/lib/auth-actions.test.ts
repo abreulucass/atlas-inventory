@@ -201,3 +201,48 @@ describe("auth actions", () => {
     expect(redirects).toEqual(["/entrar"]);
   });
 });
+
+describe("auth actions validation parity (REG-04)", () => {
+  it.each([
+    ["a name over 120 code points", { name: "a".repeat(121) }],
+    ["an e-mail growing to 255 when lowercased", { email: `İ${"a".repeat(241)}@example.com` }],
+    ["a password under 12 code points", { [secretKey]: "😀".repeat(11) }],
+    ["a blank organization name", { organizationName: "\u3000" }],
+    ["a short slug", { organizationSlug: "ab" }],
+  ])("register makes no request for %s", async (_, patch) => {
+    const state = await run(register({}, registerForm(patch)));
+    expect(Object.keys(state.fieldErrors ?? {})).toHaveLength(1);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("login makes no request for a Java-blank e-mail", async () => {
+    const state = await run(login({}, loginForm({ email: "\u2003" })));
+    expect(state.fieldErrors?.email).toBe("Informe seu e-mail.");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("sends the values normalized the way the backend validates them", async () => {
+    fetchMock.mockResolvedValue(new Response(tokens, { status: 201 }));
+    await expect(
+      register(
+        {},
+        registerForm({
+          name: `\u2028${"a".repeat(120)}\u3000`,
+          email: "\u2003Ana@Example.COM\n",
+          organizationName: "\u00A0Acme\t",
+        }),
+      ),
+    ).rejects.toThrow("NEXT_REDIRECT");
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({
+      name: "a".repeat(120),
+      email: "ana@example.com",
+      organizationName: "\u00A0Acme",
+    });
+
+    fetchMock.mockResolvedValue(new Response(tokens, { status: 200 }));
+    await expect(login({}, loginForm({ email: "\u3000ANA@example.com" }))).rejects.toThrow(
+      "NEXT_REDIRECT",
+    );
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).email).toBe("ana@example.com");
+  });
+});

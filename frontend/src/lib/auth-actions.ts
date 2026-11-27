@@ -11,7 +11,13 @@ import {
   sessionCookies,
   type TokenPair,
 } from "./session";
-import { validateLogin, validateRegister, type RegisterInput } from "./validation";
+import {
+  normalizeEmail,
+  strip,
+  validateLogin,
+  validateRegister,
+  type RegisterInput,
+} from "./validation";
 
 // Never carries a token (SES-02).
 export type FormState = {
@@ -55,7 +61,7 @@ export async function login(_prev: FormState, data: FormData): Promise<FormState
   const fieldErrors = validateLogin({ email, password });
   if (Object.keys(fieldErrors).length > 0) return { fieldErrors, values };
 
-  const res = await post("/api/auth/login", { email: email.trim(), password });
+  const res = await post("/api/auth/login", { email: normalizeEmail(email), password });
   if (!res) return { formError: UNAVAILABLE, values };
   if (res.status === 401) return { formError: INVALID_CREDENTIALS, values };
   if (!res.ok) return { formError: CHECK_DATA, values };
@@ -76,10 +82,10 @@ export async function register(_prev: FormState, data: FormData): Promise<FormSt
   if (Object.keys(fieldErrors).length > 0) return { fieldErrors, values };
 
   const res = await post("/api/auth/register", {
-    name: input.name.trim(),
-    email: input.email.trim(),
+    name: strip(input.name),
+    email: normalizeEmail(input.email),
     password,
-    organizationName: input.organizationName.trim(),
+    organizationName: strip(input.organizationName),
     organizationSlug: input.organizationSlug,
   });
   if (!res) return { formError: UNAVAILABLE, values };

@@ -11,7 +11,18 @@ export type LoginField = "email" | "password";
 export type RegisterInput = Record<RegisterField, string>;
 export type LoginInput = Record<LoginField, string>;
 
-const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+// Java's \s is ASCII only: [ \t\n\x0B\f\r].
+const EMAIL = /^[^@ \t\n\v\f\r]+@[^@ \t\n\v\f\r]+\.[^@ \t\n\v\f\r]+$/;
+
+// Java Character.isWhitespace: Unicode separators except the no-break ones (U+00A0, U+2007, U+202F).
+const JAVA_SPACE = "\\t\\n\\u000B\\f\\r\\u001C-\\u001F \\u1680\\u2000-\\u2006\\u2008-\\u200A\\u2028\\u2029\\u205F\\u3000";
+const EDGE_SPACE = new RegExp(`^[${JAVA_SPACE}]+|[${JAVA_SPACE}]+$`, "g");
+
+/** Java String.strip(). */
+export const strip = (value: string) => value.replace(EDGE_SPACE, "");
+
+/** The e-mail as the backend stores it: strip().toLowerCase(Locale.ROOT). */
+export const normalizeEmail = (value: string) => strip(value).toLowerCase();
 const SLUG = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
 const NAME_MAX = 120;
@@ -35,7 +46,7 @@ export const MESSAGES = {
 const length = (value: string) => [...value].length;
 
 function validName(value: string) {
-  const trimmed = value.trim();
+  const trimmed = strip(value);
   return trimmed !== "" && length(trimmed) <= NAME_MAX;
 }
 
@@ -55,7 +66,8 @@ export function validateRegister(
 ): Partial<Record<RegisterField, string>> {
   const errors: Partial<Record<RegisterField, string>> = {};
   if (!validName(input.name)) errors.name = MESSAGES.name;
-  const email = input.email.trim();
+  const email = normalizeEmail(input.email);
+  // UTF-16 units, like Java String.length().
   if (email.length > EMAIL_MAX || !EMAIL.test(email)) errors.email = MESSAGES.email;
   const passwordLength = length(input.password);
   if (passwordLength < PASSWORD_MIN || passwordLength > PASSWORD_MAX) {
@@ -75,7 +87,7 @@ export function validateLogin(
   input: LoginInput,
 ): Partial<Record<LoginField, string>> {
   const errors: Partial<Record<LoginField, string>> = {};
-  if (input.email.trim() === "") errors.email = MESSAGES.loginEmail;
+  if (strip(input.email) === "") errors.email = MESSAGES.loginEmail;
   if (input.password === "") errors.password = MESSAGES.loginPwd;
   return errors;
 }
