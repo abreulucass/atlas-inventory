@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
@@ -65,5 +65,15 @@ describe("CompaniesPage role wiring", () => {
     } else {
       expect(screen.queryByRole("button", { name: "Nova empresa" })).not.toBeInTheDocument();
     }
+  });
+});
+
+describe("CompaniesPage while loading", () => {
+  it("shows the header and table skeletons until the data arrives", () => {
+    getMe.mockReturnValue(new Promise(() => {}));
+    getCompanies.mockReturnValue(new Promise(() => {}));
+    const { container } = render(<CompaniesPage searchParams={Promise.resolve({}) as never} />);
+    expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(2);
+    expect(container.querySelector("table")).toBeNull();
   });
 });

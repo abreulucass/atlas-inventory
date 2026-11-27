@@ -6,6 +6,9 @@ import CompaniesLoading from "./loading";
 describe("CompaniesLoading", () => {
   it("renders a skeleton", () => {
     render(<CompaniesLoading />);
-    expect(screen.getByTestId("companies-skeleton")).toBeInTheDocument();
+    const wrapper = screen.getByTestId("companies-skeleton");
+    const skeletons = wrapper.querySelectorAll('[data-slot="skeleton"]');
+    expect(skeletons).toHaveLength(3);
+    expect(skeletons[2]).toHaveClass("h-40", "w-full");
   });
 });
