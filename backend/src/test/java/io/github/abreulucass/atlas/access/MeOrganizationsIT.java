@@ -36,46 +36,63 @@ class MeOrganizationsIT extends AccessITSupport {
 		app.update("update organizations set name = ? where id = ?", name, organizationId);
 	}
 
+	/** Caller owns one organization, is ADMIN in another and MEMBER in a third; a fourth is a stranger's. */
+	record Fixture(Session ana, Session admin, Session member, Session stranger, List<Map<String, Object>> expected) {
+	}
+
+	Fixture fixture() throws Exception {
+		Session ana = register("Ana");
+		Session admin = register("Admin");
+		Session member = register("Member");
+		Session stranger = register("Stranger");
+		addAs(admin, ana.email(), "ADMIN").andExpect(status().isCreated());
+		addAs(member, ana.email(), "MEMBER").andExpect(status().isCreated());
+		String unique = UUID.randomUUID().toString().substring(0, 8);
+		rename(admin.organizationId(), "Alpha " + unique);
+		rename(member.organizationId(), "Beta " + unique);
+		rename(ana.organizationId(), "Gamma " + unique);
+		rename(stranger.organizationId(), "Aaa " + unique);
+		return new Fixture(ana, admin, member, stranger,
+				List.of(own(admin, "ADMIN"), own(member, "MEMBER"), own(ana, "OWNER")));
+	}
+
 	@Test
 	void listsEveryMembershipWithRoleAndStatus() throws Exception {
-		Session ana = register("Ana");
-		Session other = register("Other");
-		addAs(other, ana.email(), "ADMIN").andExpect(status().isCreated());
-		assertThat(list(ana)).containsExactlyInAnyOrder(own(ana, "OWNER"), own(other, "ADMIN"));
+		Fixture f = fixture();
+		assertThat(list(f.ana())).isEqualTo(f.expected());
 	}
 
 	@Test
 	void neverListsOrganizationsWithoutMembership() throws Exception {
-		Session ana = register("Ana");
-		Session stranger = register("Stranger");
-		assertThat(app.queryForObject("select count(*) from organizations where id = ?", Integer.class,
-				stranger.organizationId())).isEqualTo(1);
-		assertThat(list(ana)).containsExactly(own(ana, "OWNER"));
+		Fixture f = fixture();
+		UUID stranger = f.stranger().organizationId();
+		assertThat(app.queryForObject("select count(*) from organizations where id = ?", Integer.class, stranger))
+			.isEqualTo(1);
+		for (UUID active : List.of(f.ana().organizationId(), f.admin().organizationId(),
+				f.member().organizationId())) {
+			List<Map<String, Object>> rows = list(switchTo(f.ana(), active));
+			assertThat(rows).isEqualTo(f.expected());
+			assertThat(rows).noneMatch(r -> r.get("id").equals(stranger.toString()));
+		}
 	}
 
 	@Test
 	void ordersByNameThenSlug() throws Exception {
 		Session ana = register("Ana");
 		Session b = register("B");
-		Session c = register("C");
-		Session d = register("D");
+		String unique = UUID.randomUUID().toString().substring(0, 8);
+		// c is created first but gets the later slug, so insertion order is opposite to slug order
+		Session c = register("C", "zz" + unique);
+		Session d = register("D", "aa" + unique);
 		for (Session s : List.of(b, c, d)) {
 			addAs(s, ana.email(), "MEMBER").andExpect(status().isCreated());
 		}
-		String unique = UUID.randomUUID().toString().substring(0, 8);
 		rename(ana.organizationId(), "Zeta " + unique);
 		rename(b.organizationId(), "Alpha " + unique);
 		// c and d share a name: the slug breaks the tie
 		rename(c.organizationId(), "Beta " + unique);
 		rename(d.organizationId(), "Beta " + unique);
-		List<Session> tied = List.of(c, d).stream()
-			.sorted(java.util.Comparator.comparing(
-					s -> (String) app.queryForObject("select slug from organizations where id = ?", String.class,
-							s.organizationId())))
-			.toList();
-		List<Map<String, Object>> expected = List.of(own(b, "MEMBER"), own(tied.get(0), "MEMBER"), own(tied.get(1), "MEMBER"),
-				own(ana, "OWNER"));
-		assertThat(list(ana)).isEqualTo(expected);
+		assertThat(list(ana)).isEqualTo(List.of(own(b, "MEMBER"), own(d, "MEMBER"), own(c, "MEMBER"), own(ana, "OWNER")));
 	}
 
 	@Test
@@ -97,14 +114,11 @@ class MeOrganizationsIT extends AccessITSupport {
 
 	@Test
 	void sameListWhicheverOrganizationIsActive() throws Exception {
-		Session ana = register("Ana");
-		Session other = register("Other");
-		addAs(other, ana.email(), "ADMIN").andExpect(status().isCreated());
-		List<Map<String, Object>> first = list(ana);
-		List<Map<String, Object>> second = list(switchTo(ana, other.organizationId()));
-		assertThat(first).hasSize(2).containsExactlyInAnyOrder(own(ana, "OWNER"), own(other, "ADMIN"));
-		assertThat(second).isEqualTo(first);
-		assertThat(list(switchTo(ana, ana.organizationId()))).isEqualTo(first);
+		Fixture f = fixture();
+		assertThat(list(f.ana())).isEqualTo(f.expected());
+		for (Session as : List.of(f.admin(), f.member(), f.ana())) {
+			assertThat(list(switchTo(f.ana(), as.organizationId()))).isEqualTo(f.expected());
+		}
 	}
 
 }
