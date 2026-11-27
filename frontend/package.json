@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "check:bundle": "node scripts/check-bundle.mjs"
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "check:workflow": "node scripts/check-workflow.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -40,7 +41,8 @@
     "jsdom": "^31.0.1",
     "tailwindcss": "4.3.3",
     "typescript": "^5",
-    "vitest": "^5.1.2"
+    "vitest": "^5.1.2",
+    "yaml": "^2.9.1"
   },
   "engines": {
     "node": ">=24"
