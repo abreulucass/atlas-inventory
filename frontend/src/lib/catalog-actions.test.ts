@@ -24,8 +24,12 @@ const revalidated: string[] = [];
 vi.mock("next/cache", () => ({ revalidatePath: (p: string) => revalidated.push(p) }));
 
 import {
+  archiveCategory,
+  archiveProduct,
   createCategory,
   createProduct,
+  unarchiveCategory,
+  unarchiveProduct,
   updateProduct,
 } from "./catalog-actions";
 import type { ArchiveState, CreateState } from "./company-actions";
@@ -206,22 +210,72 @@ describe("updateProduct", () => {
   });
 });
 
-type Create = [name: string, call: () => Promise<CreateState>, ok: () => Response];
-const creates: Create[] = [
+const noContent = () => new Response(null, { status: 204 });
+
+describe("archiveCategory", () => {
+  it("posts archive and revalidates /categorias", async () => {
+    fetchMock.mockResolvedValue(noContent());
+    expect(await track(archiveCategory("k1"))).toEqual({ ok: true });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api.test/api/categories/k1/archive");
+    expect(init.method).toBe("POST");
+    expect(init.headers.get("Authorization")).toBe(`Bearer ${ACCESS}`);
+    expect(revalidated).toEqual(["/categorias"]);
+  });
+});
+
+describe("unarchiveCategory", () => {
+  it("posts unarchive and revalidates /categorias", async () => {
+    fetchMock.mockResolvedValue(noContent());
+    expect(await track(unarchiveCategory("k1"))).toEqual({ ok: true });
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/categories/k1/unarchive");
+    expect(fetchMock.mock.calls[0][1].method).toBe("POST");
+    expect(revalidated).toEqual(["/categorias"]);
+  });
+});
+
+describe("archiveProduct", () => {
+  it("posts archive and revalidates /produtos", async () => {
+    fetchMock.mockResolvedValue(noContent());
+    expect(await track(archiveProduct("p1"))).toEqual({ ok: true });
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/products/p1/archive");
+    expect(fetchMock.mock.calls[0][1].method).toBe("POST");
+    expect(revalidated).toEqual(["/produtos"]);
+  });
+});
+
+describe("unarchiveProduct", () => {
+  it("posts unarchive and revalidates /produtos", async () => {
+    fetchMock.mockResolvedValue(noContent());
+    expect(await track(unarchiveProduct("p1"))).toEqual({ ok: true });
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/products/p1/unarchive");
+    expect(fetchMock.mock.calls[0][1].method).toBe("POST");
+    expect(revalidated).toEqual(["/produtos"]);
+  });
+});
+
+type Action = [name: string, call: () => Promise<CreateState | ArchiveState>, ok: () => Response];
+const actions: Action[] = [
   ["createCategory", () => createCategory({}, category()), created],
   ["createProduct", () => createProduct({}, product()), created],
   ["updateProduct", () => updateProduct({}, edit()), updated],
+  ["archiveCategory", () => archiveCategory("k1"), noContent],
+  ["unarchiveCategory", () => unarchiveCategory("k1"), noContent],
+  ["archiveProduct", () => archiveProduct("p1"), noContent],
+  ["unarchiveProduct", () => unarchiveProduct("p1"), noContent],
 ];
+const message = (state: CreateState | ArchiveState) =>
+  "error" in state ? state.error : (state as CreateState).formError;
 
 describe("catalog actions", () => {
   it("send the access cookie as Bearer and never return a token for every action", async () => {
-    for (const [, call, ok] of creates) {
+    for (const [, call, ok] of actions) {
       fetchMock.mockResolvedValueOnce(ok());
       await track(call());
       fetchMock.mockResolvedValueOnce(problem(409, "SKU already in use in this organization: AB-1"));
       await track(call());
     }
-    expect(fetchMock.mock.calls).toHaveLength(6);
+    expect(fetchMock.mock.calls).toHaveLength(actions.length * 2);
     for (const [, init] of fetchMock.mock.calls) {
       expect(init.headers.get("Authorization")).toBe(`Bearer ${ACCESS}`);
     }
@@ -229,21 +283,21 @@ describe("catalog actions", () => {
   });
 
   it("map 403 to the role message for every action", async () => {
-    for (const [, call] of creates) {
+    for (const [, call] of actions) {
       fetchMock.mockResolvedValueOnce(problem(403, "Forbidden"));
-      expect((await track(call())).formError).toBe("Seu papel não permite esta operação.");
+      expect(message(await track(call()))).toBe("Seu papel não permite esta operação.");
     }
     expect(writes).toEqual([]);
     expect(revalidated).toEqual([]);
   });
 
   it("map an unavailable backend to the service message for every action", async () => {
-    for (const [, call] of creates) {
+    for (const [, call] of actions) {
       fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
-      expect((await track(call())).formError).toBe(UNAVAILABLE);
+      expect(message(await track(call()))).toBe(UNAVAILABLE);
       fetchMock.mockResolvedValueOnce(problem(503, "Database exploded"));
       const state = await track(call());
-      expect(state.formError).toBe(UNAVAILABLE);
+      expect(message(state)).toBe(UNAVAILABLE);
       expect(JSON.stringify(state)).not.toContain("exploded");
     }
     expect(writes).toEqual([]);
@@ -252,27 +306,27 @@ describe("catalog actions", () => {
   });
 
   it("redirect 401 to /auth/expired for every action", async () => {
-    for (const [, call] of creates) {
+    for (const [, call] of actions) {
       fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
       await expect(call()).rejects.toThrow("NEXT_REDIRECT");
     }
-    expect(redirects).toEqual(Array(3).fill("/auth/expired"));
+    expect(redirects).toEqual(Array(actions.length).fill("/auth/expired"));
     expect(writes).toEqual([]);
   });
 
   it("map an archived organization for every action", async () => {
-    for (const [, call] of creates) {
+    for (const [, call] of actions) {
       fetchMock.mockResolvedValueOnce(problem(409, "Organization is archived: o1"));
-      expect((await track(call())).formError).toBe("Esta organização está arquivada.");
+      expect(message(await track(call()))).toBe("Esta organização está arquivada.");
     }
   });
 
   it("show the check-data message for an unmapped error", async () => {
-    for (const [, call] of creates) {
+    for (const [, call] of actions) {
       fetchMock.mockResolvedValueOnce(new Response("<html>", { status: 400 }));
       const state = await track(call());
-      expect(state.formError).toBe("Verifique os dados informados.");
-      expect(state.fieldErrors).toBeUndefined();
+      expect(message(state)).toBe("Verifique os dados informados.");
+      expect("fieldErrors" in state ? state.fieldErrors : undefined).toBeUndefined();
     }
   });
 });

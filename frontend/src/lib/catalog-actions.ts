@@ -14,7 +14,7 @@ import {
   post,
   UNAVAILABLE,
 } from "./backend";
-import type { CreateState } from "./company-actions";
+import type { ArchiveState, CreateState } from "./company-actions";
 import { strip, validateCategory, validateProduct, validateProductEdit } from "./validation";
 
 const CATEGORY_ARCHIVED = "Esta categoria está arquivada.";
@@ -104,3 +104,30 @@ export async function updateProduct(_prev: CreateState, data: FormData): Promise
     values,
   );
 }
+
+async function lifecycle(
+  kind: "categories" | "products",
+  id: string,
+  action: "archive" | "unarchive",
+): Promise<ArchiveState> {
+  const res = await post(
+    `/api/${kind}/${encodeURIComponent(id)}/${action}`,
+    undefined,
+    await accessToken(),
+  );
+  if (!res) return { error: UNAVAILABLE };
+  if (res.status === 401) redirect("/auth/expired");
+  if (res.status === 403) return { error: FORBIDDEN };
+  if (res.status === 204) {
+    revalidatePath(kind === "categories" ? "/categorias" : "/produtos");
+    return { ok: true };
+  }
+  const detail = await detailOf(res);
+  if (detail.startsWith("Organization is archived")) return { error: ORG_ARCHIVED };
+  return { error: CHECK_DATA };
+}
+
+export const archiveCategory = async (id: string) => lifecycle("categories", id, "archive");
+export const unarchiveCategory = async (id: string) => lifecycle("categories", id, "unarchive");
+export const archiveProduct = async (id: string) => lifecycle("products", id, "archive");
+export const unarchiveProduct = async (id: string) => lifecycle("products", id, "unarchive");
