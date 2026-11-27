@@ -36,7 +36,16 @@ test.describe("shell", () => {
 
   test("opens the sidebar as a sheet on narrow screens", async ({ page }) => {
     await page.setViewportSize(MOBILE);
-    await register(page);
+    const user = await register(page);
+
+    // SHL-02 at 375 px: the user menu shows who is signed in and the role.
+    await page.getByRole("button", { name: user.name }).click();
+    const menu = page.getByRole("menu");
+    await expect(menu.getByText(user.name)).toBeVisible();
+    await expect(menu.getByText(user.email)).toBeVisible();
+    await expect(menu.getByText("Proprietário")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(menu).toBeHidden();
 
     await expect(page.getByRole("link", { name: "Início" })).toBeHidden();
     await page.getByRole("button", { name: "Abrir menu" }).click();
@@ -50,18 +59,23 @@ test.describe("shell", () => {
   test("has no horizontal scroll at 375 and 1280 px", async ({ page }) => {
     for (const size of [MOBILE, DESKTOP]) {
       await page.setViewportSize(size);
-      for (const path of ["/entrar", "/cadastro"]) {
+      for (const [path, submit] of [
+        ["/entrar", "Entrar"],
+        ["/cadastro", "Criar conta"],
+      ]) {
         await page.goto(path);
-        await expect(page.getByRole("button", { name: /Entrar|Criar conta/ })).toBeVisible();
+        await expect(page).toHaveURL(path);
+        await expect(page.getByRole("button", { name: submit, exact: true })).toBeVisible();
         expect(await hasHorizontalScroll(page), `${path} at ${size.width}px`).toBe(false);
       }
     }
 
-    await register(page);
+    const user = await register(page);
     for (const size of [MOBILE, DESKTOP]) {
       await page.setViewportSize(size);
       await page.goto("/");
-      await expect(page.getByRole("heading", { name: /^Olá, / })).toBeVisible();
+      await expect(page).toHaveURL("/");
+      await expect(page.getByRole("heading", { name: `Olá, ${user.name}` })).toBeVisible();
       expect(await hasHorizontalScroll(page), `/ at ${size.width}px`).toBe(false);
     }
   });
