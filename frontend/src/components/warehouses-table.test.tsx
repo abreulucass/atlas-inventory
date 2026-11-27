@@ -1,6 +1,12 @@
 import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("@/lib/catalog-actions", () => ({
+  archiveCategory: vi.fn(),
+  unarchiveCategory: vi.fn(),
+  archiveProduct: vi.fn(),
+  unarchiveProduct: vi.fn(),
+}));
 vi.mock("@/lib/company-actions", () => ({
   archiveCompany: vi.fn(),
   unarchiveCompany: vi.fn(),
