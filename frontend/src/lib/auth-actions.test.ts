@@ -4,11 +4,18 @@ vi.mock("server-only", () => ({}));
 
 type Cookie = { value: string; options?: Record<string, unknown> };
 const jar = new Map<string, Cookie>();
+const writes: string[] = [];
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => (jar.has(name) ? { name, value: jar.get(name)!.value } : undefined),
-    set: (name: string, value: string, options?: Record<string, unknown>) =>
-      jar.set(name, { value, options }),
+    set: (name: string, value: string, options?: Record<string, unknown>) => {
+      writes.push(`set ${name}`);
+      return jar.set(name, { value, options });
+    },
+    delete: (name: string) => {
+      writes.push(`delete ${name}`);
+      return jar.delete(name);
+    },
   }),
 }));
 
@@ -64,6 +71,7 @@ const problem = (status: number, detail: string) =>
 
 beforeEach(() => {
   jar.clear();
+  writes.length = 0;
   redirects.length = 0;
   vi.stubGlobal("fetch", fetchMock);
   vi.stubEnv("ATLAS_API_URL", "http://api.test");
@@ -252,9 +260,20 @@ describe("switchOrganization", () => {
     jar.set("atlas_access", { value: "old-access" });
     jar.set("atlas_refresh", { value: "old-refresh" });
   };
-  const expectUntouched = () => {
+  const meta = { httpOnly: true, sameSite: "lax", path: "/", secure: true };
+  // Complete metadata, so a rewrite that changes any attribute (or any write at all) shows.
+  const seeded = () => {
+    jar.set("atlas_access", { value: "old-access", options: { ...meta, maxAge: 870 } });
+    jar.set("atlas_refresh", { value: "old-refresh", options: { ...meta, maxAge: 2592000 } });
+    return structuredClone([...jar.entries()]);
+  };
+  const expectUntouched = (snapshot?: ReturnType<typeof seeded>) => {
     expect(jar.get("atlas_access")?.value).toBe("old-access");
     expect(jar.get("atlas_refresh")?.value).toBe("old-refresh");
+    if (snapshot) {
+      expect([...jar.entries()]).toEqual(snapshot);
+      expect(writes).toEqual([]);
+    }
   };
 
   it("replaces the session cookies and redirects home", async () => {
@@ -272,33 +291,49 @@ describe("switchOrganization", () => {
 
   it("never returns a token", async () => {
     signedIn();
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 403 }));
-    fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
-    for (let i = 0; i < 2; i++) {
-      const returned = JSON.stringify(await switchOrganization("org-2"));
-      expect(returned).not.toContain(ACCESS);
-      expect(returned).not.toContain(REFRESH);
-      expect(returned).not.toContain("old-");
+    const leak = (status: number) =>
+      new Response(JSON.stringify({ status, detail: `${ACCESS} ${REFRESH}`, accessToken: ACCESS }), {
+        status,
+      });
+    const cases: [() => void, { error: string }][] = [
+      [() => fetchMock.mockResolvedValueOnce(leak(403)), { error: "Você não faz mais parte desta organização." }],
+      [() => fetchMock.mockResolvedValueOnce(leak(400)), { error: UNAVAILABLE }],
+      [() => fetchMock.mockResolvedValueOnce(leak(500)), { error: UNAVAILABLE }],
+      [() => fetchMock.mockRejectedValueOnce(new Error(`fetch failed ${ACCESS} ${REFRESH}`)), { error: UNAVAILABLE }],
+    ];
+    for (const [arrange, expected] of cases) {
+      arrange();
+      const returned = await switchOrganization("org-2");
+      expect(returned).toEqual(expected);
+      const text = JSON.stringify(returned);
+      for (const secret of [ACCESS, REFRESH, "old-"]) expect(text).not.toContain(secret);
     }
+    // success and expiry only redirect; the returned/thrown path carries nothing
+    fetchMock.mockResolvedValueOnce(leak(401));
+    await expect(switchOrganization("org-2")).rejects.toThrow("NEXT_REDIRECT");
+    fetchMock.mockResolvedValueOnce(new Response(tokens, { status: 200 }));
+    await expect(switchOrganization("org-2")).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirects).toEqual(["/auth/expired", "/"]);
   });
 
   it("keeps the session when the membership is gone", async () => {
-    signedIn();
+    const snapshot = seeded();
     fetchMock.mockResolvedValue(new Response(null, { status: 403 }));
     expect(await switchOrganization("org-2")).toEqual({
       error: "Você não faz mais parte desta organização.",
     });
-    expectUntouched();
+    expectUntouched(snapshot);
     expect(redirects).toEqual([]);
   });
 
   it("keeps the session when the backend is unavailable", async () => {
-    signedIn();
+    const snapshot = seeded();
     fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
     expect(await switchOrganization("org-2")).toEqual({ error: UNAVAILABLE });
+    expectUntouched(snapshot);
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 503 }));
     expect(await switchOrganization("org-2")).toEqual({ error: UNAVAILABLE });
-    expectUntouched();
+    expectUntouched(snapshot);
     expect(redirects).toEqual([]);
   });
 

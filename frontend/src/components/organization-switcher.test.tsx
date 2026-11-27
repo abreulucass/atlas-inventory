@@ -50,6 +50,18 @@ describe("OrganizationSwitcher", () => {
     await open([acme, old]);
     expect(await screen.findByText("Arquivada")).toBeInTheDocument();
     expect(screen.getByRole("menuitem", { name: /Velha/ })).toHaveTextContent("Arquivada");
+    // only archived items carry the badge
+    expect(screen.getByRole("menuitem", { name: "Acme" })).not.toHaveTextContent("Arquivada");
+    expect(screen.getAllByText("Arquivada")).toHaveLength(1);
+  });
+
+  it("switches to an archived organization", async () => {
+    switchOrganization.mockResolvedValue(undefined);
+    const user = await open([acme, old]);
+    const item = await screen.findByRole("menuitem", { name: /Velha/ });
+    expect(item).not.toHaveAttribute("aria-disabled", "true");
+    await user.click(item);
+    expect(switchOrganization).toHaveBeenCalledExactlyOnceWith("o3");
   });
 
   it("switches to the selected organization", async () => {

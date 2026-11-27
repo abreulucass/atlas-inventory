@@ -1,6 +1,6 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Cookie, type Page } from "@playwright/test";
 
-import { cookieValues, newUser, register, type TestUser } from "./helpers";
+import { cookieValues, fillLogin, newUser, register, signOut, type TestUser } from "./helpers";
 
 const API = "http://localhost:8080";
 const DESKTOP = { width: 1280, height: 800 };
@@ -37,6 +37,10 @@ async function removeMember(request: APIRequestContext, ownerToken: string, memb
   expect(removed.ok()).toBe(true);
 }
 
+const POLICY = ["httpOnly", "sameSite", "path", "secure"] as const;
+const policyOf = (cookie: Cookie | undefined) =>
+  Object.fromEntries(POLICY.map((k) => [k, cookie?.[k]]));
+
 // Registers A (org A), gives A a second membership, and reloads so the header lists both.
 async function userWithTwoOrganizations(
   page: Page,
@@ -65,6 +69,8 @@ test.describe("organizations", () => {
 
   test("switches and lands home in the other organization", async ({ page, request }) => {
     const { user, otherName } = await userWithTwoOrganizations(page, request);
+    await page.goto("/?from=test");
+    await expect(page).toHaveURL("/?from=test");
     await switchTo(page, otherName);
 
     await expect(page).toHaveURL("/");
@@ -84,19 +90,33 @@ test.describe("organizations", () => {
   });
 
   test("never exposes the switched tokens to the page", async ({ page, request }) => {
-    const { otherName } = await userWithTwoOrganizations(page, request);
+    const { user, otherName } = await userWithTwoOrganizations(page, request);
+    // a real login, so the replacement cookies can be compared with the ones login sets
+    await signOut(page);
+    await fillLogin(page, user.email, user.password);
+    await expect(page).toHaveURL("/");
     const before = await cookieValues(page);
+    const loginCookies = await page.context().cookies();
+    const loginPolicy = {
+      access: policyOf(loginCookies.find((c) => c.name === "atlas_access")),
+      refresh: policyOf(loginCookies.find((c) => c.name === "atlas_refresh")),
+    };
+    expect(loginPolicy.access.httpOnly).toBe(true);
+    expect(loginPolicy.refresh.httpOnly).toBe(true);
 
-    const texts: Promise<string>[] = [];
+    const captured: { action: boolean; text: Promise<string> }[] = [];
     page.on("response", (response) => {
-      texts.push(
-        (async () => {
-          const headers = Object.entries(await response.allHeaders())
+      if (response.status() >= 300 && response.status() < 400) return;
+      const headers = response.request().headers();
+      captured.push({
+        action: response.request().method() === "POST" && "next-action" in headers,
+        text: (async () => {
+          const names = Object.entries(await response.allHeaders())
             .filter(([name]) => name !== "set-cookie")
             .map(([name, value]) => `${name}: ${value}`);
-          return [...headers, await response.text().catch(() => "")].join("\n");
+          return [...names, await response.text()].join("\n");
         })(),
-      );
+      });
     });
     await switchTo(page, otherName);
     await expect(page.getByRole("button", { name: otherName })).toBeVisible();
@@ -107,10 +127,21 @@ test.describe("organizations", () => {
     expect(after.access).not.toBe(before.access);
     expect(after.refresh).not.toBe(before.refresh);
     const cookies = await page.context().cookies();
-    expect(cookies.find((c) => c.name === "atlas_access")?.httpOnly).toBe(true);
-    for (const text of await Promise.all(texts)) {
+    for (const [key, name] of [
+      ["access", "atlas_access"],
+      ["refresh", "atlas_refresh"],
+    ] as const) {
+      expect(policyOf(cookies.find((c) => c.name === name))).toEqual(loginPolicy[key]);
+    }
+    expect(captured.some((c) => c.action)).toBe(true);
+    // every body must be read; an unreadable one fails the test instead of passing as clean
+    const texts = await Promise.all(captured.map((c) => c.text));
+    expect(texts.length).toBeGreaterThan(0);
+    for (const text of texts) {
       expect(text).not.toContain(after.access!);
       expect(text).not.toContain(after.refresh!);
+      expect(text).not.toContain(before.access!);
+      expect(text).not.toContain(before.refresh!);
     }
     expect(await page.evaluate(() => document.cookie)).not.toContain("atlas_");
   });
@@ -130,11 +161,24 @@ test.describe("organizations", () => {
 
     const box = await longTrigger.boundingBox();
     expect(box!.width).toBeLessThan(MOBILE.width / 2 + 40);
-    const clipped = await longTrigger
+    const label = await longTrigger
       .locator("span")
       .first()
-      .evaluate((el) => el.scrollWidth > el.clientWidth);
-    expect(clipped).toBe(true);
+      .evaluate((el) => {
+        const style = getComputedStyle(el);
+        return {
+          clipped: el.scrollWidth > el.clientWidth,
+          overflow: style.overflow,
+          whiteSpace: style.whiteSpace,
+          textOverflow: style.textOverflow,
+        };
+      });
+    expect(label).toEqual({
+      clipped: true,
+      overflow: "hidden",
+      whiteSpace: "nowrap",
+      textOverflow: "ellipsis",
+    });
     expect(
       await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth),
     ).toBe(false);
