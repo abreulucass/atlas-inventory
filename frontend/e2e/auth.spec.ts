@@ -163,6 +163,11 @@ test.describe("session", () => {
     await page.goto("/");
 
     await expect(page).toHaveURL("/entrar?next=%2F");
+
+    await page.goto("/rota/protegida?x=1&y=2");
+    await expect(page).toHaveURL(/\/entrar\?next=/);
+    expect(new URL(page.url()).pathname).toBe("/entrar");
+    expect(new URL(page.url()).searchParams.get("next")).toBe("/rota/protegida?x=1&y=2");
   });
 
   test("redirects signed-in users away from the auth pages", async ({ page }) => {
@@ -185,7 +190,18 @@ test.describe("session", () => {
     await expect(page.getByRole("heading", { name: `Olá, ${user.name}` })).toBeVisible();
     const after = await cookieValues(page);
     expect(after.access).toBeTruthy();
+    expect(after.refresh).toBeTruthy();
     expect(after.refresh).not.toBe(before.refresh);
+
+    // The rotated pair refreshes again.
+    await context.clearCookies({ name: ACCESS_COOKIE });
+    await page.reload();
+    await expect(page).toHaveURL("/");
+    await expect(page.getByRole("heading", { name: `Olá, ${user.name}` })).toBeVisible();
+    const again = await cookieValues(page);
+    expect(again.access).toBeTruthy();
+    expect(again.refresh).toBeTruthy();
+    expect(again.refresh).not.toBe(after.refresh);
   });
 
   test("refuses actions from another origin", async ({ page, context, request }) => {
