@@ -93,12 +93,14 @@ describe("getOrganizations", () => {
 });
 
 const companies = [
-  { id: "c1", name: "Alfa", cnpj: null, status: "ACTIVE" },
-  { id: "c2", name: "Beta", cnpj: "11222333000181", status: "ARCHIVED" },
+  { id: "c9", name: "Zeta", cnpj: null, status: "ACTIVE" },
+  { id: "c1", name: "Alfa", cnpj: "11222333000181", status: "ARCHIVED" },
+  { id: "c5", name: "Mega", cnpj: "00000000000191", status: "ACTIVE" },
 ];
 const warehouses = [
-  { id: "w1", companyId: "c1", name: "Central", code: "CD-1", status: "ACTIVE" },
-  { id: "w2", companyId: "c1", name: "Norte", code: "CD-2", status: "ARCHIVED" },
+  { id: "w7", companyId: "c1", name: "Norte", code: "CD-9", status: "ARCHIVED" },
+  { id: "w1", companyId: "c1", name: "Central", code: "CD-2", status: "ACTIVE" },
+  { id: "w4", companyId: "c1", name: "Sul", code: "CD-1", status: "ACTIVE" },
 ];
 const ok = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
 
@@ -107,7 +109,9 @@ describe("getCompanies", () => {
 
   it("returns the companies in the API order", async () => {
     fetchMock.mockResolvedValue(ok(companies));
-    expect(await getCompanies(false)).toEqual(companies);
+    const result = await getCompanies(false);
+    expect(result).toEqual(companies);
+    expect(result.map((c) => c.name)).toEqual(["Zeta", "Alfa", "Mega"]);
     expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/companies");
   });
 
@@ -134,6 +138,9 @@ describe("getCompanies", () => {
     expect(fetchMock.mock.calls[2][1].headers.get("Authorization")).toBe("Bearer tok");
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
     await expect(getWarehouses("c1")).rejects.toThrow("NEXT_REDIRECT /auth/expired");
+    fetchMock.mockResolvedValueOnce(ok(companies[0]));
+    await getCompany("c1");
+    expect(fetchMock.mock.calls[4][1].headers.get("Authorization")).toBe("Bearer tok");
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
     await expect(getCompany("c1")).rejects.toThrow("NEXT_REDIRECT /auth/expired");
   });
@@ -159,7 +166,9 @@ describe("getWarehouses", () => {
 
   it("returns the warehouses in the API order", async () => {
     fetchMock.mockResolvedValue(ok(warehouses));
-    expect(await getWarehouses("c1", false)).toEqual(warehouses);
+    const result = await getWarehouses("c1", false);
+    expect(result).toEqual(warehouses);
+    expect(result.map((w) => `${w.code}/${w.name}`)).toEqual(["CD-9/Norte", "CD-2/Central", "CD-1/Sul"]);
     expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/companies/c1/warehouses");
   });
 
