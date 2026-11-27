@@ -34,23 +34,31 @@ const json = (body: unknown, status = 200) =>
 
 describe("sessionCookies", () => {
   it("sets the cookie attributes and lifetimes", () => {
+    // expiresIn - 30, at least 1 second (SES-01).
     for (const [env, secure] of [
       ["production", true],
       ["development", false],
     ] as const) {
       vi.stubEnv("NODE_ENV", env);
-      expect(sessionCookies(pair("1"))).toEqual([
-        {
-          name: "atlas_access",
-          value: "access-1",
-          options: { httpOnly: true, sameSite: "lax", path: "/", secure, maxAge: 870 },
-        },
-        {
-          name: "atlas_refresh",
-          value: "refresh-1",
-          options: { httpOnly: true, sameSite: "lax", path: "/", secure, maxAge: 2592000 },
-        },
-      ]);
+      for (const [expiresIn, maxAge] of [
+        [900, 870],
+        [31, 1],
+        [30, 1],
+        [10, 1],
+      ]) {
+        expect(sessionCookies({ ...pair("1"), expiresIn })).toEqual([
+          {
+            name: "atlas_access",
+            value: "access-1",
+            options: { httpOnly: true, sameSite: "lax", path: "/", secure, maxAge },
+          },
+          {
+            name: "atlas_refresh",
+            value: "refresh-1",
+            options: { httpOnly: true, sameSite: "lax", path: "/", secure, maxAge: 2592000 },
+          },
+        ]);
+      }
     }
   });
 
