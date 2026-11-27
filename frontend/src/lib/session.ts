@@ -70,8 +70,12 @@ export function refreshSession(
     () => {
       flight.expiresAt = Date.now() + SETTLED_TTL_MS;
     },
-    // Unavailable: forget it so the next request retries (the token was not consumed).
-    () => flights.delete(refreshToken),
+    (e) => {
+      // Never reached the backend: the token was not consumed, so the next request retries.
+      if (e instanceof ServiceUnavailableError && !e.reachedBackend) flights.delete(refreshToken);
+      // shortcut: an ambiguous failure (5xx, timeout, reset) may have consumed the token; replaying it would revoke the family, so callers get "unavailable" for 60 s, then one retry is allowed.
+      else flight.expiresAt = Date.now() + SETTLED_TTL_MS;
+    },
   );
   return flight.promise;
 }

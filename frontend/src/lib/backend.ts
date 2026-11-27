@@ -1,15 +1,21 @@
 import "server-only";
 
+// Errors where the request never left this process, so the backend did not see it.
+const NOT_SENT = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"]);
+
 export class ServiceUnavailableError extends Error {
-  constructor(cause?: unknown) {
+  // false only when the backend surely did not receive the request (safe to retry a refresh).
+  readonly reachedBackend: boolean;
+  constructor(cause?: unknown, reachedBackend = true) {
     super("Serviço indisponível. Tente novamente em instantes.", { cause });
     this.name = "ServiceUnavailableError";
+    this.reachedBackend = reachedBackend;
   }
 }
 
 export function apiUrl(): string {
   const url = process.env.ATLAS_API_URL;
-  if (!url) throw new ServiceUnavailableError();
+  if (!url) throw new ServiceUnavailableError(undefined, false);
   return url.replace(/\/+$/, "");
 }
 
@@ -27,7 +33,8 @@ export async function backendFetch(
   try {
     res = await fetch(url, { ...rest, headers: merged, cache: "no-store" });
   } catch (e) {
-    throw new ServiceUnavailableError(e);
+    const code = (e as { cause?: { code?: unknown } })?.cause?.code;
+    throw new ServiceUnavailableError(e, !(typeof code === "string" && NOT_SENT.has(code)));
   }
   if (res.status >= 500) throw new ServiceUnavailableError();
   return res;

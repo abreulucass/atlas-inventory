@@ -107,11 +107,29 @@ describe("refreshSession", () => {
     expect(await refreshSession("old-e")).toBe("rejected");
   });
 
-  it("throws as unavailable on a 5xx and retries on the next call", async () => {
+  it("retries on the next call when the backend was not reached", async () => {
     fetchMock
-      .mockResolvedValueOnce(new Response(null, { status: 502 }))
+      .mockRejectedValueOnce(new TypeError("fetch failed", { cause: { code: "ECONNREFUSED" } }))
       .mockResolvedValueOnce(json(pair("f")));
-    await expect(refreshSession("old-f")).rejects.toBeInstanceOf(ServiceUnavailableError);
+    await expect(refreshSession("old-f")).rejects.toMatchObject({ reachedBackend: false });
     expect(await refreshSession("old-f")).toEqual(pair("f"));
+    expect(refreshCalls()).toHaveLength(2);
+  });
+
+  it.each([
+    ["a 5xx", () => Promise.resolve(new Response(null, { status: 503 }))],
+    ["a reset", () => Promise.reject(new TypeError("fetch failed", { cause: { code: "ECONNRESET" } }))],
+    ["a timeout", () => Promise.reject(new DOMException("timeout", "TimeoutError"))],
+  ])("does not replay the token for 60 seconds after %s", async (kind, failure) => {
+    const token = `old-g ${kind}`;
+    vi.useFakeTimers();
+    fetchMock.mockImplementationOnce(failure).mockResolvedValueOnce(json(pair("g")));
+    await expect(refreshSession(token)).rejects.toBeInstanceOf(ServiceUnavailableError);
+    vi.advanceTimersByTime(59_999);
+    await expect(refreshSession(token)).rejects.toBeInstanceOf(ServiceUnavailableError);
+    expect(refreshCalls()).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(await refreshSession(token)).toEqual(pair("g"));
+    expect(refreshCalls()).toHaveLength(2);
   });
 });
