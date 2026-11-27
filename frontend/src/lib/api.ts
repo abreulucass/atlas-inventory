@@ -18,7 +18,7 @@ export type Me = {
 
 // RSC cannot clear cookies, so a rejected token goes through /auth/expired.
 // SPEC_DEVIATION: no `next` here; an RSC does not know the request path. The route sends the user to /entrar.
-export const getMe = cache(async (): Promise<Me> => {
+async function authedGet<T>(path: string): Promise<T> {
   const jar = await cookies();
   const token = jar.get(ACCESS_COOKIE)?.value;
   if (!token) {
@@ -26,8 +26,20 @@ export const getMe = cache(async (): Promise<Me> => {
     if (jar.get(REFRESH_COOKIE)) throw new ServiceUnavailableError();
     redirect("/auth/expired");
   }
-  const res = await backendFetch("/api/me", { token });
+  const res = await backendFetch(path, { token });
   if (res.status === 401) redirect("/auth/expired");
-  if (!res.ok) throw new Error(`GET /api/me failed with ${res.status}`);
-  return (await res.json()) as Me;
-});
+  if (!res.ok) throw new Error(`GET ${path} failed with ${res.status}`);
+  return (await res.json()) as T;
+}
+
+export const getMe = cache(() => authedGet<Me>("/api/me"));
+
+export type Organization = {
+  id: string;
+  name: string;
+  slug: string;
+  role: Role;
+  status: "ACTIVE" | "ARCHIVED";
+};
+
+export const getOrganizations = cache(() => authedGet<Organization[]>("/api/me/organizations"));

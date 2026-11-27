@@ -14,7 +14,7 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-import { getMe } from "./api";
+import { getMe, getOrganizations } from "./api";
 
 const me = {
   id: "u1",
@@ -62,5 +62,29 @@ describe("getMe", () => {
     jar.set("atlas_refresh", "r1");
     await expect(getMe()).rejects.toMatchObject({ name: "ServiceUnavailableError" });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("getOrganizations", () => {
+  it("reads the organizations with the access cookie as Bearer", async () => {
+    const orgs = [{ id: "o1", name: "Acme", slug: "acme", role: "OWNER", status: "ACTIVE" }];
+    jar.set("atlas_access", "tok");
+    fetchMock.mockResolvedValue(new Response(JSON.stringify(orgs), { status: 200 }));
+    expect(await getOrganizations()).toEqual(orgs);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api.test/api/me/organizations");
+    expect(init.headers.get("Authorization")).toBe("Bearer tok");
+  });
+
+  it("redirects to the expired route on a 401", async () => {
+    jar.set("atlas_access", "tok");
+    fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
+    await expect(getOrganizations()).rejects.toThrow("NEXT_REDIRECT /auth/expired");
+  });
+
+  it("fails on a non-OK answer", async () => {
+    jar.set("atlas_access", "tok");
+    fetchMock.mockResolvedValue(new Response(null, { status: 404 }));
+    await expect(getOrganizations()).rejects.toThrow("failed with 404");
   });
 });
