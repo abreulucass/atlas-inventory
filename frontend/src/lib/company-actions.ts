@@ -42,8 +42,10 @@ async function accessToken(): Promise<string> {
 }
 
 async function detailOf(res: Response): Promise<string> {
-  const body = (await res.json().catch(() => ({}))) as { detail?: unknown };
-  return String(body.detail ?? "");
+  const body: unknown = await res.json().catch(() => null);
+  if (typeof body !== "object" || body === null) return "";
+  const { detail } = body as { detail?: unknown };
+  return typeof detail === "string" ? detail : "";
 }
 
 async function create(
