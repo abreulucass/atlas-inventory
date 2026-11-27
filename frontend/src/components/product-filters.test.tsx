@@ -9,7 +9,7 @@ const CATEGORIES: Category[] = [
   { id: "k1", name: "Bebidas", status: "ACTIVE" },
   { id: "k2", name: "Antiga", status: "ARCHIVED" },
 ];
-const DEFAULTS: ProductParams = { q: undefined, categoria: undefined, status: "ativos", pagina: 1 };
+const DEFAULTS: ProductParams = { q: undefined, categoria: undefined, status: "ativos", pagina: "1" };
 
 const renderFilters = (params: Partial<ProductParams> = {}) =>
   render(<ProductFilters params={{ ...DEFAULTS, ...params }} categories={CATEGORIES} />);
@@ -49,7 +49,7 @@ describe("ProductFilters", () => {
   });
 
   it("sends no pagina field", () => {
-    const { container } = renderFilters({ pagina: 4 });
+    const { container } = renderFilters({ pagina: "4" });
     const form = container.querySelector("form")!;
     expect(form.elements.namedItem("pagina")).toBeNull();
     expect([...new FormData(form).keys()].sort()).toEqual(["categoria", "q", "status"]);

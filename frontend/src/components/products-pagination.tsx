@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { buttonVariants } from "@/components/ui/button";
-import { productHref, type ProductParams } from "@/lib/catalog-query";
+import { productHref, shiftPagina, type ProductParams } from "@/lib/catalog-query";
 import { cn } from "cn";
 
 function PageLink({ href, children }: { href: string | undefined; children: string }) {
@@ -25,14 +25,14 @@ export function ProductsPagination({ params, totalPages }: { params: ProductPara
   if (totalPages <= 1) return null;
   return (
     <nav aria-label="Paginação" className="flex items-center justify-between gap-4">
-      <PageLink href={params.pagina > 1 ? productHref(params, { pagina: params.pagina - 1 }) : undefined}>
+      <PageLink href={BigInt(params.pagina) > BigInt(1) ? productHref(params, { pagina: shiftPagina(params.pagina, -1) }) : undefined}>
         Anterior
       </PageLink>
       <span className="text-sm text-muted-foreground">
         Página {params.pagina} de {totalPages}
       </span>
       <PageLink
-        href={params.pagina < totalPages ? productHref(params, { pagina: params.pagina + 1 }) : undefined}
+        href={BigInt(params.pagina) < BigInt(totalPages) ? productHref(params, { pagina: shiftPagina(params.pagina, 1) }) : undefined}
       >
         Próxima
       </PageLink>

@@ -64,7 +64,7 @@ describe("ProductsPage", () => {
   it("requests the default list for no params and says so when empty", async () => {
     getProducts.mockResolvedValue({ items: [], page: 0, size: 20, totalItems: 0, totalPages: 0 });
     await renderPage({});
-    expect(getProducts).toHaveBeenCalledExactlyOnceWith("");
+    expect(getProducts).toHaveBeenCalledExactlyOnceWith("page=0");
     expect(screen.getByText("Nenhum produto cadastrado.")).toBeInTheDocument();
   });
 

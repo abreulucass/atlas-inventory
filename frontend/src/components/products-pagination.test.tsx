@@ -8,7 +8,7 @@ const params = (over: Partial<ProductParams> = {}): ProductParams => ({
   q: undefined,
   categoria: undefined,
   status: "ativos",
-  pagina: 1,
+  pagina: "1",
   ...over,
 });
 
@@ -20,7 +20,7 @@ describe("ProductsPagination", () => {
     expect(screen.getByRole("link", { name: "Anterior" })).not.toHaveAttribute("href");
     expect(screen.getByRole("link", { name: "Próxima" })).not.toHaveAttribute("aria-disabled");
 
-    rerender(<ProductsPagination params={params({ pagina: 3 })} totalPages={3} />);
+    rerender(<ProductsPagination params={params({ pagina: "3" })} totalPages={3} />);
     expect(screen.getByText("Página 3 de 3")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Próxima" })).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("link", { name: "Próxima" })).not.toHaveAttribute("href");
@@ -34,7 +34,7 @@ describe("ProductsPagination", () => {
 
   it("links to the previous and next pagina", () => {
     render(
-      <ProductsPagination params={params({ q: "a b", categoria: "k1", status: "todos", pagina: 2 })} totalPages={3} />,
+      <ProductsPagination params={params({ q: "a b", categoria: "k1", status: "todos", pagina: "2" })} totalPages={3} />,
     );
     expect(screen.getByRole("link", { name: "Anterior" })).toHaveAttribute(
       "href",
