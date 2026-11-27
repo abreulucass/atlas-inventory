@@ -172,6 +172,15 @@ describe("createProduct", () => {
   });
 });
 
+describe("an archived product on a write", () => {
+  it("maps 409 Product is archived to the form error", async () => {
+    fetchMock.mockResolvedValue(problem(409, "Product is archived: p1"));
+    const state = await track(updateProduct({}, edit()));
+    expect(state.formError).toBe("Este produto está arquivado.");
+    expect(state.fieldErrors).toBeUndefined();
+  });
+});
+
 describe("updateProduct", () => {
   it("patches version, name and categoryId and revalidates /produtos", async () => {
     fetchMock.mockResolvedValue(updated());
@@ -328,5 +337,36 @@ describe("catalog actions", () => {
       expect(message(state)).toBe("Verifique os dados informados.");
       expect("fieldErrors" in state ? state.fieldErrors : undefined).toBeUndefined();
     }
+  });
+});
+
+describe("unmapped backend errors", () => {
+  const known: [status: number, detail: string][] = [
+    [409, "Category name already in use in this organization: Bebidas"],
+    [409, "SKU already in use in this organization: AB-1"],
+    [409, `Category is archived: ${CAT_ID}`],
+    [404, `Category not found: ${CAT_ID}`],
+    [409, "Product was changed by someone else, reload it: p1"],
+    [409, "Product is archived: p1"],
+    [409, "Organization is archived: o1"],
+  ];
+  const unmapped: [number, string][] = [
+    ...[400, 404, 409].map((status): [number, string] => [status, "Something unexpected: x1"]),
+    // a known prefix under a status other than its contract status
+    ...known.flatMap(([contract, detail]) =>
+      [400, 404, 409].filter((s) => s !== contract).map((s): [number, string] => [s, detail]),
+    ),
+  ];
+
+  it("show the check-data message for every action, status and unknown or misplaced detail", async () => {
+    for (const [, call] of actions) {
+      for (const [status, detail] of unmapped) {
+        fetchMock.mockResolvedValueOnce(problem(status, detail));
+        const state = await track(call());
+        expect(message(state), `${status} ${detail}`).toBe("Verifique os dados informados.");
+        expect("fieldErrors" in state ? state.fieldErrors : undefined).toBeUndefined();
+      }
+    }
+    expect(revalidated).toEqual([]);
   });
 });

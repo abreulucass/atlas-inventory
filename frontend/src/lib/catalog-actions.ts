@@ -19,18 +19,21 @@ import { strip, validateCategory, validateProduct, validateProductEdit } from ".
 
 const CATEGORY_ARCHIVED = "Esta categoria está arquivada.";
 
-// Backend `detail` prefix -> where the pt-BR message goes (a field name, or "form").
-const DETAILS: [prefix: string, target: string, message: string][] = [
-  ["Category name already in use", "name", "Já existe uma categoria com este nome."],
-  ["SKU already in use", "sku", "Já existe um produto com este SKU."],
-  ["Category is archived", "categoryId", CATEGORY_ARCHIVED],
-  ["Category not found", "categoryId", "Categoria não encontrada."],
+// Backend status + `detail` prefix -> where the pt-BR message goes (a field name, or "form").
+// A known prefix under another status is not trusted: it falls to the generic message.
+const DETAILS: [status: number, prefix: string, target: string, message: string][] = [
+  [409, "Category name already in use", "name", "Já existe uma categoria com este nome."],
+  [409, "SKU already in use", "sku", "Já existe um produto com este SKU."],
+  [409, "Category is archived", "categoryId", CATEGORY_ARCHIVED],
+  [404, "Category not found", "categoryId", "Categoria não encontrada."],
   [
+    409,
     "Product was changed by someone else",
     "form",
     "Este produto foi alterado por outra pessoa. Recarregue a página.",
   ],
-  ["Organization is archived", "form", ORG_ARCHIVED],
+  [409, "Product is archived", "form", "Este produto está arquivado."],
+  [409, "Organization is archived", "form", ORG_ARCHIVED],
 ];
 
 async function write(
@@ -50,11 +53,11 @@ async function write(
     return { ok: true };
   }
   const detail = await detailOf(res);
-  const hit = DETAILS.find(([prefix]) => detail.startsWith(prefix));
+  const hit = DETAILS.find(([status, prefix]) => res.status === status && detail.startsWith(prefix));
   if (hit) {
-    return hit[1] === "form"
-      ? { formError: hit[2], values }
-      : { fieldErrors: { [hit[1]]: hit[2] }, values };
+    return hit[2] === "form"
+      ? { formError: hit[3], values }
+      : { fieldErrors: { [hit[2]]: hit[3] }, values };
   }
   return { formError: CHECK_DATA, values };
 }
@@ -123,7 +126,7 @@ async function lifecycle(
     return { ok: true };
   }
   const detail = await detailOf(res);
-  if (detail.startsWith("Organization is archived")) return { error: ORG_ARCHIVED };
+  if (res.status === 409 && detail.startsWith("Organization is archived")) return { error: ORG_ARCHIVED };
   return { error: CHECK_DATA };
 }
 
