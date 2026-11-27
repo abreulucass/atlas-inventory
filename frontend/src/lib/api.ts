@@ -73,3 +73,33 @@ export const getWarehouses = (companyId: string, includeArchived = false) =>
     `/api/companies/${encodeURIComponent(companyId)}/warehouses${archivedQuery(includeArchived)}`,
     { notFoundOn404: true },
   );
+
+export type Category = { id: string; name: string; status: "ACTIVE" | "ARCHIVED" };
+
+export type Unit = "UN" | "CX" | "PC" | "KG" | "G" | "L" | "ML" | "M";
+
+export type Product = {
+  id: string;
+  sku: string;
+  name: string;
+  unit: Unit;
+  fractional: boolean;
+  categoryId: string | null;
+  status: "ACTIVE" | "ARCHIVED";
+  version: number;
+};
+
+export type ProductPage = {
+  items: Product[];
+  page: number;
+  size: number;
+  totalItems: number;
+  totalPages: number;
+};
+
+export const getCategories = (includeArchived = false) =>
+  authedGet<Category[]>(`/api/categories${archivedQuery(includeArchived)}`);
+
+/** `query` is the query string built by `productApiQuery` (no leading "?"). */
+export const getProducts = (query = "") =>
+  authedGet<ProductPage>(`/api/products${query ? `?${query}` : ""}`);

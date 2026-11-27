@@ -17,7 +17,15 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-import { getCompanies, getCompany, getMe, getOrganizations, getWarehouses } from "./api";
+import {
+  getCategories,
+  getCompanies,
+  getCompany,
+  getMe,
+  getOrganizations,
+  getProducts,
+  getWarehouses,
+} from "./api";
 
 const me = {
   id: "u1",
@@ -184,5 +192,74 @@ describe("getWarehouses", () => {
     expect(fetchMock.mock.calls[0][0]).toBe(
       "http://api.test/api/companies/c1/warehouses?includeArchived=true",
     );
+  });
+});
+
+const categories = [
+  { id: "k9", name: "Bebidas", status: "ACTIVE" },
+  { id: "k1", name: "Alimentos", status: "ARCHIVED" },
+];
+
+describe("getCategories", () => {
+  beforeEach(() => jar.set("atlas_access", "tok"));
+
+  it("returns the categories in the API order", async () => {
+    fetchMock.mockResolvedValue(ok(categories));
+    const result = await getCategories(false);
+    expect(result).toEqual(categories);
+    expect(result.map((c) => c.name)).toEqual(["Bebidas", "Alimentos"]);
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/categories");
+    expect(fetchMock.mock.calls[0][1].headers.get("Authorization")).toBe("Bearer tok");
+  });
+
+  it("requests active categories without includeArchived", async () => {
+    fetchMock.mockImplementation(async () => ok([]));
+    await getCategories();
+    await getCategories(false);
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/categories");
+    expect(fetchMock.mock.calls[1][0]).toBe("http://api.test/api/categories");
+  });
+
+  it("requests includeArchived=true when asked", async () => {
+    fetchMock.mockResolvedValue(ok(categories));
+    await getCategories(true);
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/categories?includeArchived=true");
+  });
+
+  it("redirects 401 to /auth/expired", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
+    await expect(getCategories()).rejects.toThrow("NEXT_REDIRECT /auth/expired");
+  });
+});
+
+describe("getProducts", () => {
+  beforeEach(() => jar.set("atlas_access", "tok"));
+
+  const page = {
+    items: [
+      { id: "p1", sku: "A-1", name: "Água", unit: "L", fractional: true, categoryId: null, status: "ACTIVE", version: 0 },
+    ],
+    page: 0,
+    size: 20,
+    totalItems: 1,
+    totalPages: 1,
+  };
+
+  it("fetches the page with the access token and the given query", async () => {
+    fetchMock.mockResolvedValue(ok(page));
+    expect(await getProducts("q=a&page=2")).toEqual(page);
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/products?q=a&page=2");
+    expect(fetchMock.mock.calls[0][1].headers.get("Authorization")).toBe("Bearer tok");
+  });
+
+  it("adds no question mark for an empty query", async () => {
+    fetchMock.mockResolvedValue(ok(page));
+    await getProducts("");
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/products");
+  });
+
+  it("redirects 401 to /auth/expired", async () => {
+    fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
+    await expect(getProducts("")).rejects.toThrow("NEXT_REDIRECT /auth/expired");
   });
 });
