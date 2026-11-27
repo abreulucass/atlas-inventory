@@ -1,4 +1,4 @@
-import { BuildingIcon, HomeIcon } from "lucide-react";
+import { BuildingIcon, HomeIcon, PackageIcon, TagsIcon } from "lucide-react";
 
 import { NavLink } from "@/components/nav-link";
 import {
@@ -27,6 +27,14 @@ export function AppSidebar() {
               <NavLink href="/empresas" prefix>
                 <BuildingIcon />
                 <span>Empresas</span>
+              </NavLink>
+              <NavLink href="/produtos" prefix>
+                <PackageIcon />
+                <span>Produtos</span>
+              </NavLink>
+              <NavLink href="/categorias" prefix>
+                <TagsIcon />
+                <span>Categorias</span>
               </NavLink>
             </SidebarMenu>
           </SidebarGroupContent>

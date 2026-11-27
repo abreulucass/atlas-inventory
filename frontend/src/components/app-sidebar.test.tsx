@@ -48,4 +48,18 @@ describe("AppSidebar", () => {
     expect(screen.getByRole("link", { name: "Empresas" })).toHaveAttribute("data-active");
     expect(screen.getByRole("link", { name: "Início" })).not.toHaveAttribute("data-active");
   });
+
+  it.each([
+    ["links to the products page", "Produtos", "/produtos"],
+    ["links to the categories page", "Categorias", "/categorias"],
+  ])("%s", (_t, name, href) => {
+    pathname = "/";
+    const { unmount } = renderSidebar();
+    expect(screen.getByRole("link", { name })).toHaveAttribute("href", href);
+    expect(screen.getByRole("link", { name })).not.toHaveAttribute("data-active");
+    unmount();
+    pathname = `${href}/abc`;
+    renderSidebar();
+    expect(screen.getByRole("link", { name })).toHaveAttribute("data-active");
+  });
 });
