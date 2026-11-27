@@ -1,5 +1,8 @@
+"use client";
+
 import Link from "next/link";
-import { HomeIcon } from "lucide-react";
+import { usePathname } from "next/navigation";
+import { BuildingIcon, HomeIcon } from "lucide-react";
 
 import {
   Sidebar,
@@ -13,6 +16,8 @@ import {
 } from "@/components/ui/sidebar";
 
 export function AppSidebar() {
+  const pathname = usePathname();
+  const onCompanies = pathname === "/empresas" || pathname.startsWith("/empresas/");
   return (
     <Sidebar>
       <SidebarHeader>
@@ -23,9 +28,15 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               <SidebarMenuItem>
-                <SidebarMenuButton isActive render={<Link href="/" />}>
+                <SidebarMenuButton isActive={pathname === "/"} render={<Link href="/" />}>
                   <HomeIcon />
                   <span>Início</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton isActive={onCompanies} render={<Link href="/empresas" />}>
+                  <BuildingIcon />
+                  <span>Empresas</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
