@@ -1,3 +1,5 @@
+import { UNITS } from "./format";
+
 // Mirrors the backend rules (AuthService.java, Organizations.java); lengths count code points.
 
 export type RegisterField =
@@ -110,5 +112,35 @@ export function validateWarehouse(input: {
   const errors: Partial<Record<"code" | "name", string>> = {};
   if (!WAREHOUSE_CODE.test(strip(input.code))) errors.code = COMPANY_MESSAGES.code;
   if (!validName(input.name)) errors.name = COMPANY_MESSAGES.name;
+  return errors;
+}
+
+const SKU = /^[A-Za-z0-9._-]{1,40}$/;
+
+export const CATALOG_MESSAGES = {
+  categoryName: "Informe um nome de até 80 caracteres.",
+  sku: "Use até 40 letras, números, ponto, hífen ou sublinhado.",
+  productName: "Informe um nome de até 200 caracteres.",
+  unit: "Escolha uma unidade.",
+} as const;
+
+export function validateCategory(input: { name: string }): Partial<Record<"name", string>> {
+  const name = strip(input.name);
+  return name !== "" && length(name) <= 80 ? {} : { name: CATALOG_MESSAGES.categoryName };
+}
+
+export function validateProductEdit(input: { name: string }): Partial<Record<"name", string>> {
+  const name = strip(input.name);
+  return name !== "" && length(name) <= 200 ? {} : { name: CATALOG_MESSAGES.productName };
+}
+
+export function validateProduct(input: {
+  sku: string;
+  name: string;
+  unit: string;
+}): Partial<Record<"sku" | "name" | "unit", string>> {
+  const errors: Partial<Record<"sku" | "name" | "unit", string>> = validateProductEdit(input);
+  if (!SKU.test(strip(input.sku))) errors.sku = CATALOG_MESSAGES.sku;
+  if (!(UNITS as string[]).includes(input.unit)) errors.unit = CATALOG_MESSAGES.unit;
   return errors;
 }
