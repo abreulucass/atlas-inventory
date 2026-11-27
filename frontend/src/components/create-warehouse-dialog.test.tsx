@@ -82,8 +82,8 @@ describe("CreateWarehouseDialog", () => {
   ])("rejects %s before calling the action", async (_label, code, name, label, message) => {
     const user = await openDialog();
     const codeInput = await screen.findByLabelText("Código");
-    if (code) await user.type(codeInput, code, { delay: null });
-    if (name) await user.type(screen.getByLabelText("Nome"), name, { delay: null });
+    if (code) await user.type(codeInput, code);
+    if (name) await user.type(screen.getByLabelText("Nome"), name);
     await user.click(screen.getByRole("button", { name: "Criar depósito" }));
     expect(await screen.findByText(message)).toBeInTheDocument();
     expect(screen.getByLabelText(label)).toHaveAccessibleDescription(message);

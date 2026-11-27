@@ -69,7 +69,7 @@ describe("CreateCompanyDialog", () => {
     async (_label, name) => {
       const user = await openDialog();
       const input = await screen.findByLabelText("Nome");
-      if (name) await user.type(input, name, { delay: null });
+      if (name) await user.type(input, name);
       await user.click(screen.getByRole("button", { name: "Criar empresa" }));
       expect(await screen.findByText("Informe um nome de até 120 caracteres.")).toBeInTheDocument();
       expect(screen.getByLabelText("Nome")).toHaveAccessibleDescription(
