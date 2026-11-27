@@ -32,6 +32,9 @@ const DETAILS: [prefix: string, target: string, message: string][] = [
   ["Organization is archived", "form", ORG_ARCHIVED],
 ];
 
+// Never carries a token (SEC-02).
+export type ArchiveState = { ok: true } | { error: string };
+
 async function accessToken(): Promise<string> {
   const token = (await cookies()).get(ACCESS_COOKIE)?.value;
   if (!token) redirect("/auth/expired");
@@ -96,3 +99,33 @@ export async function createWarehouse(_prev: CreateState, data: FormData): Promi
     values,
   );
 }
+
+async function lifecycle(
+  path: string,
+  action: "archive" | "unarchive",
+  companyId: string,
+): Promise<ArchiveState> {
+  const res = await post(`${path}/${action}`, undefined, await accessToken());
+  if (!res) return { error: UNAVAILABLE };
+  if (res.status === 401) redirect("/auth/expired");
+  if (res.status === 403) return { error: FORBIDDEN };
+  if (res.status === 204) {
+    revalidatePath("/empresas");
+    revalidatePath(`/empresas/${companyId}`);
+    return { ok: true };
+  }
+  const detail = await detailOf(res);
+  if (detail.startsWith("Organization is archived")) return { error: ORG_ARCHIVED };
+  return { error: CHECK_DATA };
+}
+
+const company = (id: string) => `/api/companies/${encodeURIComponent(id)}`;
+const warehouse = (companyId: string, id: string) =>
+  `${company(companyId)}/warehouses/${encodeURIComponent(id)}`;
+
+export const archiveCompany = async (id: string) => lifecycle(company(id), "archive", id);
+export const unarchiveCompany = async (id: string) => lifecycle(company(id), "unarchive", id);
+export const archiveWarehouse = async (companyId: string, id: string) =>
+  lifecycle(warehouse(companyId, id), "archive", companyId);
+export const unarchiveWarehouse = async (companyId: string, id: string) =>
+  lifecycle(warehouse(companyId, id), "unarchive", companyId);

@@ -23,7 +23,16 @@ vi.mock("next/navigation", () => ({
 const revalidated: string[] = [];
 vi.mock("next/cache", () => ({ revalidatePath: (p: string) => revalidated.push(p) }));
 
-import { createCompany, createWarehouse, type CreateState } from "./company-actions";
+import {
+  archiveCompany,
+  archiveWarehouse,
+  createCompany,
+  createWarehouse,
+  unarchiveCompany,
+  unarchiveWarehouse,
+  type ArchiveState,
+  type CreateState,
+} from "./company-actions";
 
 const ACCESS = "secret-access-token";
 const UNAVAILABLE = "Serviço indisponível. Tente novamente em instantes.";
@@ -31,7 +40,7 @@ const NAME_ERROR = "Informe um nome de até 120 caracteres.";
 const CODE_ERROR = "Use até 20 letras, números ou hífen.";
 
 const fetchMock = vi.fn();
-const states: CreateState[] = [];
+const states: (CreateState | ArchiveState)[] = [];
 
 const form = (entries: Record<string, string>) => {
   const data = new FormData();
@@ -201,5 +210,58 @@ describe("createWarehouse", () => {
     expect((await run(createWarehouse({}, warehouse()))).formError).toBe(
       "Esta empresa está arquivada.",
     );
+  });
+});
+
+const noContent = () => new Response(null, { status: 204 });
+
+describe("archive actions", () => {
+  it("archive the company and the warehouse", async () => {
+    fetchMock.mockResolvedValue(noContent());
+    expect(await archiveCompany("c1")).toEqual({ ok: true });
+    expect(await archiveWarehouse("c1", "w1")).toEqual({ ok: true });
+    const [[companyUrl, companyInit], [warehouseUrl, warehouseInit]] = fetchMock.mock.calls;
+    expect(companyUrl).toBe("http://api.test/api/companies/c1/archive");
+    expect(warehouseUrl).toBe("http://api.test/api/companies/c1/warehouses/w1/archive");
+    for (const init of [companyInit, warehouseInit]) {
+      expect(init.method).toBe("POST");
+      expect(init.headers.get("Authorization")).toBe(`Bearer ${ACCESS}`);
+    }
+    expect(revalidated).toEqual(["/empresas", "/empresas/c1", "/empresas", "/empresas/c1"]);
+  });
+
+  it("unarchive the company and the warehouse", async () => {
+    fetchMock.mockResolvedValue(noContent());
+    expect(await unarchiveCompany("c1")).toEqual({ ok: true });
+    expect(await unarchiveWarehouse("c1", "w1")).toEqual({ ok: true });
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/companies/c1/unarchive");
+    expect(fetchMock.mock.calls[1][0]).toBe(
+      "http://api.test/api/companies/c1/warehouses/w1/unarchive",
+    );
+    for (const [, init] of fetchMock.mock.calls) {
+      expect(init.headers.get("Authorization")).toBe(`Bearer ${ACCESS}`);
+    }
+    expect(revalidated).toEqual(["/empresas", "/empresas/c1", "/empresas", "/empresas/c1"]);
+  });
+
+  it("map every failure", async () => {
+    const calls: (() => Promise<ArchiveState>)[] = [
+      () => archiveCompany("c1"),
+      () => unarchiveCompany("c1"),
+      () => archiveWarehouse("c1", "w1"),
+      () => unarchiveWarehouse("c1", "w1"),
+    ];
+    for (const call of calls) {
+      fetchMock.mockResolvedValueOnce(problem(403, "Forbidden"));
+      expect(await call()).toEqual({ error: "Seu papel não permite esta operação." });
+      fetchMock.mockResolvedValueOnce(problem(409, "Organization is archived: o1"));
+      expect(await call()).toEqual({ error: "Esta organização está arquivada." });
+      fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
+      expect(await call()).toEqual({ error: UNAVAILABLE });
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+      await expect(call()).rejects.toThrow("NEXT_REDIRECT");
+    }
+    expect(redirects).toEqual(Array(4).fill("/auth/expired"));
+    expect(writes).toEqual([]);
   });
 });
