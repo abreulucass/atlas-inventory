@@ -1,5 +1,10 @@
 import "server-only";
 
+import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
+
+import { ACCESS_COOKIE } from "./session";
+
 // Errors where the request never left this process, so the backend did not see it.
 const NOT_SENT = new Set(["ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN"]);
 
@@ -47,12 +52,34 @@ export const field = (data: FormData, name: string) => {
   return typeof value === "string" ? value : "";
 };
 
+export const FORBIDDEN = "Seu papel não permite esta operação.";
+export const CHECK_DATA = "Verifique os dados informados.";
+export const ORG_ARCHIVED = "Esta organização está arquivada.";
+
 // Returns the response, or null when the backend is unavailable; other errors propagate.
-export async function post(path: string, body: unknown, token?: string): Promise<Response | null> {
+async function send(method: string, path: string, body: unknown, token?: string): Promise<Response | null> {
   try {
-    return await backendFetch(path, { method: "POST", body: JSON.stringify(body), token });
+    return await backendFetch(path, { method, body: JSON.stringify(body), token });
   } catch (e) {
     if (e instanceof ServiceUnavailableError) return null;
     throw e;
   }
+}
+
+export const post = (path: string, body: unknown, token?: string) => send("POST", path, body, token);
+export const patch = (path: string, body: unknown, token?: string) => send("PATCH", path, body, token);
+
+/** The access cookie; a Server Action without one sends the user through /auth/expired. */
+export async function accessToken(): Promise<string> {
+  const token = (await cookies()).get(ACCESS_COOKIE)?.value;
+  if (!token) redirect("/auth/expired");
+  return token;
+}
+
+/** The `detail` of a ProblemDetail body, "" when there is none. */
+export async function detailOf(res: Response): Promise<string> {
+  const body: unknown = await res.json().catch(() => null);
+  if (typeof body !== "object" || body === null) return "";
+  const { detail } = body as { detail?: unknown };
+  return typeof detail === "string" ? detail : "";
 }

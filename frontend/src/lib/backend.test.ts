@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { backendFetch, ServiceUnavailableError } from "./backend";
+import { backendFetch, patch, post, ServiceUnavailableError } from "./backend";
 
 const fetchMock = vi.fn();
 
@@ -59,5 +59,25 @@ describe("backendFetch", () => {
     expect(init1.headers.get("Authorization")).toBe("Bearer abc");
     expect(init2.headers.get("Authorization")).toBeNull();
     expect(init2.headers.get("Content-Type")).toBe("application/json");
+  });
+});
+
+describe("post and patch", () => {
+  it("send the method, JSON body and Bearer token", async () => {
+    fetchMock.mockImplementation(async () => new Response("{}", { status: 200 }));
+    await post("/api/x", { a: 1 }, "abc");
+    await patch("/api/x", { b: 2 }, "abc");
+    const [[, postInit], [, patchInit]] = fetchMock.mock.calls;
+    expect(postInit.method).toBe("POST");
+    expect(postInit.body).toBe('{"a":1}');
+    expect(patchInit.method).toBe("PATCH");
+    expect(patchInit.body).toBe('{"b":2}');
+    expect(patchInit.headers.get("Authorization")).toBe("Bearer abc");
+  });
+
+  it("return null when the backend is unavailable", async () => {
+    fetchMock.mockRejectedValue(new TypeError("fetch failed"));
+    expect(await post("/api/x", {})).toBeNull();
+    expect(await patch("/api/x", {})).toBeNull();
   });
 });
