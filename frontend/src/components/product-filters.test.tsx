@@ -1,8 +1,8 @@
-import { render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { Category } from "@/lib/api";
-import type { ProductParams } from "@/lib/catalog-query";
+import { parseProductParams, type ProductParams } from "@/lib/catalog-query";
 import { ProductFilters } from "./product-filters";
 
 const CATEGORIES: Category[] = [
@@ -46,6 +46,12 @@ describe("ProductFilters", () => {
   it("shows the current search back in the field", () => {
     renderFilters({ q: "50% & mais ou menos" });
     expect(screen.getByLabelText("Buscar por nome ou SKU")).toHaveValue("50% & mais ou menos");
+    cleanup();
+    // The submitted url, parsed, shows the text back exactly as typed.
+    const typed = "  Chá + limão #4 & 25%  ";
+    const params = parseProductParams(Object.fromEntries(new URLSearchParams({ q: typed })));
+    renderFilters(params);
+    expect(screen.getByLabelText("Buscar por nome ou SKU")).toHaveValue(typed);
   });
 
   it("sends no pagina field", () => {
@@ -53,5 +59,21 @@ describe("ProductFilters", () => {
     const form = container.querySelector("form")!;
     expect(form.elements.namedItem("pagina")).toBeNull();
     expect([...new FormData(form).keys()].sort()).toEqual(["categoria", "q", "status"]);
+  });
+
+  it.each([
+    ["Categoria", "k2", { categoria: "k2" }],
+    ["Status", "todos", { status: "todos" }],
+  ])("submits at once, back to page 1, when %s changes", (label, value, expected) => {
+    const { container } = renderFilters({ q: " a & b ", pagina: "4" });
+    const form = container.querySelector("form")!;
+    const submitted: Record<string, FormDataEntryValue>[] = [];
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      submitted.push(Object.fromEntries(new FormData(form)));
+    });
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+    expect(submitted).toEqual([{ q: " a & b ", categoria: "", status: "ativos", ...expected }]);
+    expect(submitted[0]).not.toHaveProperty("pagina");
   });
 });
