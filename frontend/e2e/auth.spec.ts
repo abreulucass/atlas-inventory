@@ -74,10 +74,17 @@ test.describe("login", () => {
 });
 
 test.describe("logout", () => {
-  test("signs out and protects the home page again", async ({ page }) => {
+  test("signs out and protects the home page again", async ({ page, request }) => {
     await register(page);
+    const { refresh } = await cookieValues(page);
+    expect(refresh).toBeTruthy();
 
     await signOut(page);
+    // The backend revoked the session, not only the local cookies (LOG-05).
+    const revoked = await request.post("http://localhost:8080/api/auth/refresh", {
+      data: { refreshToken: refresh },
+    });
+    expect(revoked.status()).toBe(401);
     expect((await cookieValues(page)).access).toBeUndefined();
     expect((await cookieValues(page)).refresh).toBeUndefined();
 
