@@ -39,3 +39,20 @@ export async function backendFetch(
   if (res.status >= 500) throw new ServiceUnavailableError();
   return res;
 }
+
+export const UNAVAILABLE = "Serviço indisponível. Tente novamente em instantes.";
+
+export const field = (data: FormData, name: string) => {
+  const value = data.get(name);
+  return typeof value === "string" ? value : "";
+};
+
+// Returns the response, or null when the backend is unavailable; other errors propagate.
+export async function post(path: string, body: unknown, token?: string): Promise<Response | null> {
+  try {
+    return await backendFetch(path, { method: "POST", body: JSON.stringify(body), token });
+  } catch (e) {
+    if (e instanceof ServiceUnavailableError) return null;
+    throw e;
+  }
+}
