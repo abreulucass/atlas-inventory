@@ -20,7 +20,7 @@ vi.mock("next/navigation", () => ({
   },
 }));
 
-import { login, logout, register, type FormState } from "./auth-actions";
+import { login, logout, register, switchOrganization, type FormState } from "./auth-actions";
 
 const ACCESS = "secret-access-token";
 const REFRESH = "secret-refresh-token";
@@ -244,5 +244,69 @@ describe("auth actions validation parity (REG-04)", () => {
       "NEXT_REDIRECT",
     );
     expect(JSON.parse(fetchMock.mock.calls[1][1].body).email).toBe("ana@example.com");
+  });
+});
+
+describe("switchOrganization", () => {
+  const signedIn = () => {
+    jar.set("atlas_access", { value: "old-access" });
+    jar.set("atlas_refresh", { value: "old-refresh" });
+  };
+  const expectUntouched = () => {
+    expect(jar.get("atlas_access")?.value).toBe("old-access");
+    expect(jar.get("atlas_refresh")?.value).toBe("old-refresh");
+  };
+
+  it("replaces the session cookies and redirects home", async () => {
+    signedIn();
+    fetchMock.mockResolvedValue(new Response(tokens, { status: 200 }));
+    await expect(switchOrganization("org-2")).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirects).toEqual(["/"]);
+    expect(jar.get("atlas_access")).toMatchObject({ value: ACCESS, options: { httpOnly: true } });
+    expect(jar.get("atlas_refresh")).toMatchObject({ value: REFRESH, options: { httpOnly: true } });
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("http://api.test/api/auth/switch-organization");
+    expect(init.headers.get("Authorization")).toBe("Bearer old-access");
+    expect(JSON.parse(init.body)).toEqual({ organizationId: "org-2" });
+  });
+
+  it("never returns a token", async () => {
+    signedIn();
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 403 }));
+    fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
+    for (let i = 0; i < 2; i++) {
+      const returned = JSON.stringify(await switchOrganization("org-2"));
+      expect(returned).not.toContain(ACCESS);
+      expect(returned).not.toContain(REFRESH);
+      expect(returned).not.toContain("old-");
+    }
+  });
+
+  it("keeps the session when the membership is gone", async () => {
+    signedIn();
+    fetchMock.mockResolvedValue(new Response(null, { status: 403 }));
+    expect(await switchOrganization("org-2")).toEqual({
+      error: "Você não faz mais parte desta organização.",
+    });
+    expectUntouched();
+    expect(redirects).toEqual([]);
+  });
+
+  it("keeps the session when the backend is unavailable", async () => {
+    signedIn();
+    fetchMock.mockRejectedValueOnce(new TypeError("fetch failed"));
+    expect(await switchOrganization("org-2")).toEqual({ error: UNAVAILABLE });
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 503 }));
+    expect(await switchOrganization("org-2")).toEqual({ error: UNAVAILABLE });
+    expectUntouched();
+    expect(redirects).toEqual([]);
+  });
+
+  it("sends an expired session through the expired route", async () => {
+    signedIn();
+    fetchMock.mockResolvedValue(new Response(null, { status: 401 }));
+    await expect(switchOrganization("org-2")).rejects.toThrow("NEXT_REDIRECT");
+    expect(redirects).toEqual(["/auth/expired"]);
+    expectUntouched();
   });
 });
