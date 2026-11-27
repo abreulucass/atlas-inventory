@@ -46,6 +46,7 @@ The API already manages categories and products (feature 22), but the frontend h
 | Edit request body | Sends `version`, `name` and `categoryId` (`null` for "Sem categoria") | One PATCH covers both fields; the version guards concurrent edits | n |
 | Client-side validation | SKU 1–40 letters, digits, `.`, `_` or `-` after trim (case-insensitive, the backend upper-cases); product name 1–200 characters after trim; category name 1–80 characters after trim; unit required | Mirrors the backend rules for instant feedback | n |
 | Telling `409`/`404` causes apart | The Server Action maps the backend `detail` prefix (`SKU already in use`, `Category name already in use`, `Category is archived`, `Product was changed by someone else`, `Product is archived`, `Category not found`, `Organization is archived`) to a pt-BR message | Same approach as feature 34; the API has no error code field | n |
+| Archived product on a write | `409 Product is archived` maps to the form error "Este produto está arquivado."; a known `detail` prefix is mapped only under its contract status (otherwise the generic "Verifique os dados informados.") | Verifier round 1: the spec listed the prefix without a message; same wording pattern as the category | n |
 | List failure, write failure, session | `401` → `/auth/expired`; other read errors → the app error boundary; write `403`, backend down and archived organization use the feature 34 messages | Same rules as features 30–34 | n |
 
 **Open questions:** none - all resolved or logged above.
