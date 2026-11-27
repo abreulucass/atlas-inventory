@@ -40,6 +40,9 @@ The MVP backend is done, but there is no interface: the API is only usable throu
 | Package manager / versions | npm, Node 24, Next.js 16 (App Router), strict TypeScript | Node 24 installed; `npm` is the repo default (AGENTS) | n |
 | Backend URL | `ATLAS_API_URL`, server-only, no `NEXT_PUBLIC_` prefix | The browser never talks to the API | n |
 | Organization name in the shell | Not shown; `/api/me` does not return it | Avoids a backend change in this feature | n |
+| Access cookie lifetime | `expiresIn - 30` seconds, at least 1 | User chose "expiresIn - 30 (Recommended)" after the Verifier found spec and design disagreeing | y |
+| Refresh failure without a clear answer | A refused connection (nothing reached the backend) may retry; a `5xx` or timeout keeps the old token in the single-flight entry for 60 s without resending it and shows "Serviço indisponível. Tente novamente em instantes." with the session cookies kept; after that window a retry may hit a revoked family and land on `/entrar` | User chose "Falha clara retenta, ambígua não (Recommended)" | y |
+| CI proof | Structural check of `frontend.yml` (triggers, jobs, step order) run locally; the real GitHub run happens when the user opens the PR | User chose "Sem push agora" | y |
 | Error messages | Fixed pt-BR texts defined in this spec; the backend `detail` is never shown raw | The backend answers in English | n |
 
 **Open questions:** none - all resolved or logged above.
@@ -112,7 +115,7 @@ The MVP backend is done, but there is no interface: the API is only usable throu
 
 **Acceptance Criteria**:
 
-1. The system SHALL keep the access and refresh tokens only in cookies with `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when `NODE_ENV=production`; the access cookie SHALL expire after `expiresIn` seconds and the refresh cookie after 30 days.
+1. The system SHALL keep the access and refresh tokens only in cookies with `HttpOnly`, `SameSite=Lax`, `Path=/`, and `Secure` when `NODE_ENV=production`; the access cookie SHALL expire after `expiresIn - 30` seconds (at least 1) and the refresh cookie after 30 days.
 2. The system SHALL NOT return an access or refresh token in any response body or non-cookie header sent to the browser.
 3. WHILE there is no valid session, WHEN a visitor opens a protected route THEN the system SHALL redirect to `/entrar?next=<original path>`.
 4. WHILE there is a valid session, WHEN the user opens `/entrar` or `/cadastro` THEN the system SHALL redirect to `/`.
