@@ -24,6 +24,14 @@ type User = ReturnType<typeof userEvent.setup>;
 function expectAnnounced(labels: string[]) {
   for (const label of labels) {
     const input = screen.getByLabelText(label);
+    // A real, visible <label for=id> with this text, not just an accessible name.
+    const elements = [...document.querySelectorAll("label")].filter(
+      (l) => l.textContent?.trim() === label,
+    );
+    expect(elements, label).toHaveLength(1);
+    expect(input.id).not.toBe("");
+    expect(elements[0].htmlFor).toBe(input.id);
+    expect(elements[0]).toBeVisible();
     expect(input).toHaveAttribute("aria-invalid", "true");
     const message = document.getElementById(input.getAttribute("aria-describedby")!);
     expect(message).toHaveTextContent(/^(Informe|A senha|O endereço)/);
