@@ -68,10 +68,19 @@ describe("ProductsPage", () => {
     expect(screen.getByText("Nenhum produto cadastrado.")).toBeInTheDocument();
   });
 
-  it("shows the filtered empty message and pagination", async () => {
+  it.each<[string, Record<string, string>, string]>([
+    ["no filter", {}, "Nenhum produto cadastrado."],
+    ["only a page", { pagina: "2" }, "Nenhum produto cadastrado."],
+    ["a blank search", { q: "   " }, "Nenhum produto cadastrado."],
+    ["a search", { q: "zzz" }, "Nenhum produto encontrado."],
+    ["only a category", { categoria: CAT }, "Nenhum produto encontrado."],
+    ["only arquivados", { status: "arquivados" }, "Nenhum produto encontrado."],
+    ["only todos", { status: "todos" }, "Nenhum produto encontrado."],
+  ])("tells an empty catalog from an empty search for %s", async (_name, params, message) => {
     getProducts.mockResolvedValue({ items: [], page: 0, size: 20, totalItems: 0, totalPages: 0 });
-    await renderPage({ q: "zzz" });
-    expect(screen.getByText("Nenhum produto encontrado.")).toBeInTheDocument();
+    await renderPage(params);
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.queryByText(message.includes("cadastrado") ? "Nenhum produto encontrado." : "Nenhum produto cadastrado.")).toBeNull();
   });
 
   it.each([
@@ -85,10 +94,10 @@ describe("ProductsPage", () => {
     expect(screen.queryByRole("button", { name: "Editar" }) !== null).toBe(visible);
   });
 
-  it("shows a skeleton until the data arrives", () => {
+  it("shows skeletons for the header, filters and table until the data arrives", () => {
     getMe.mockReturnValue(new Promise(() => {}));
     const { container } = render(<ProductsPage searchParams={Promise.resolve({})} />);
-    expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(1);
+    expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(3);
     expect(container.querySelector("table")).toBeNull();
   });
 });
