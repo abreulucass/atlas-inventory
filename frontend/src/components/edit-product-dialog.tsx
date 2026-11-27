@@ -17,6 +17,7 @@ import type { Category, Product } from "@/lib/api";
 import { updateProduct } from "@/lib/catalog-actions";
 import type { CreateState } from "@/lib/company-actions";
 import { formatUnit } from "@/lib/format";
+import { validateProductEdit } from "@/lib/validation";
 
 type Props = {
   product: Product;
@@ -29,6 +30,11 @@ type Props = {
 export function EditProductDialog({ product, categories, currentCategory }: Props) {
   const [open, setOpen] = useState(false);
   const [state, formAction] = useActionState<CreateState, FormData>(async (prev, data) => {
+    // Same rules as the Server Action, run first so a bad value makes no request.
+    const name = String(data.get("name") ?? "");
+    const categoryId = String(data.get("categoryId") ?? "");
+    const fieldErrors = validateProductEdit({ name });
+    if (Object.keys(fieldErrors).length > 0) return { fieldErrors, values: { name, categoryId } };
     const next = await updateProduct(prev, data);
     if (next.ok) setOpen(false);
     return next;

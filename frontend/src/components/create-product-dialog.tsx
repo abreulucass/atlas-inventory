@@ -17,11 +17,17 @@ import type { Category } from "@/lib/api";
 import { createProduct } from "@/lib/catalog-actions";
 import type { CreateState } from "@/lib/company-actions";
 import { formatUnit, UNITS } from "@/lib/format";
+import { validateProduct } from "@/lib/validation";
 
 /** `categories`: active ones only. */
 export function CreateProductDialog({ categories }: { categories: Category[] }) {
   const [open, setOpen] = useState(false);
   const [state, formAction] = useActionState<CreateState, FormData>(async (prev, data) => {
+    // Same rules as the Server Action, run first so a bad value makes no request.
+    const text = (name: string) => String(data.get(name) ?? "");
+    const values = { sku: text("sku"), name: text("name"), unit: text("unit"), categoryId: text("categoryId") };
+    const fieldErrors = validateProduct(values);
+    if (Object.keys(fieldErrors).length > 0) return { fieldErrors, values };
     const next = await createProduct(prev, data);
     if (next.ok) setOpen(false);
     return next;

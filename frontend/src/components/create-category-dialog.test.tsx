@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -57,6 +57,29 @@ describe("CreateCategoryDialog", () => {
     expect(screen.getByLabelText("Nome")).toHaveAccessibleDescription("Já existe uma categoria com este nome.");
     expect(screen.getByLabelText("Nome")).toHaveValue("Bebidas");
     expect(screen.getByRole("dialog")).toBeInTheDocument();
+  });
+
+  it("validates on the client: no call for a blank or 81-character name, a call for 1 or padded 80", async () => {
+    createCategory.mockResolvedValue({ ok: true });
+    const message = "Informe um nome de até 80 caracteres.";
+    for (const name of ["   ", "x".repeat(81)]) {
+      const user = await openDialog();
+      await user.type(await screen.findByLabelText("Nome"), name);
+      await user.click(screen.getByRole("button", { name: "Criar categoria" }));
+      expect(await screen.findByLabelText("Nome")).toHaveAccessibleDescription(message);
+      expect(screen.getByLabelText("Nome")).toHaveValue(name);
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(createCategory).not.toHaveBeenCalled();
+      cleanup();
+    }
+    for (const name of ["x", ` ${"é".repeat(80)} `]) {
+      const user = await openDialog();
+      await user.type(await screen.findByLabelText("Nome"), name);
+      await user.click(screen.getByRole("button", { name: "Criar categoria" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+      cleanup();
+    }
+    expect(createCategory).toHaveBeenCalledTimes(2);
   });
 
   it("shows the form error in an alert and keeps the dialog open", async () => {

@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -40,12 +40,30 @@ describe("EditProductDialog", () => {
   it("shows SKU and unit read-only and prefilled Nome and Categoria", async () => {
     await openDialog();
     const dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveTextContent("AB-1");
-    expect(dialog).toHaveTextContent("Quilograma (KG)");
+    // SKU and unit are label/value text, not form controls.
+    expect(within(dialog).getAllByRole("term").map((t) => t.textContent)).toEqual(["SKU", "Unidade"]);
+    expect(within(dialog).getAllByRole("definition").map((d) => d.textContent)).toEqual([
+      "AB-1",
+      "Quilograma (KG)",
+    ]);
     expect(screen.queryByLabelText("SKU")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Unidade")).not.toBeInTheDocument();
+    expect(within(dialog).getAllByRole("textbox")).toHaveLength(1);
+    expect(within(dialog).getAllByRole("combobox")).toHaveLength(1);
+    expect(dialog.querySelector('[name="sku"], [name="unit"]')).toBeNull();
     expect(screen.getByLabelText("Nome")).toHaveValue("Água");
     expect(screen.getByLabelText("Categoria (opcional)")).toHaveValue("k1");
     expect(screen.getByRole("button", { name: "Salvar" })).toBeInTheDocument();
+    // Neither field is part of the submitted form.
+    updateProduct.mockResolvedValue({ ok: true });
+    await userEvent.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(updateProduct).toHaveBeenCalled());
+    expect([...(updateProduct.mock.calls[0][1] as FormData).keys()].sort()).toEqual([
+      "categoryId",
+      "id",
+      "name",
+      "version",
+    ]);
   });
 
   it("preselects Sem categoria for a product with no category", async () => {
@@ -104,6 +122,26 @@ describe("EditProductDialog", () => {
     );
     expect(screen.getByRole("dialog")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Salvar" })).toBeEnabled();
+  });
+
+  it("validates on the client: no call for a blank or 201-character name, a call for padded 200", async () => {
+    updateProduct.mockResolvedValue({ ok: true });
+    const message = "Informe um nome de até 200 caracteres.";
+    for (const name of ["", "x".repeat(201)]) {
+      const user = await openDialog();
+      await user.clear(screen.getByLabelText("Nome"));
+      if (name) await user.type(screen.getByLabelText("Nome"), name);
+      await user.click(screen.getByRole("button", { name: "Salvar" }));
+      expect(await screen.findByLabelText("Nome")).toHaveAccessibleDescription(message);
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(updateProduct).not.toHaveBeenCalled();
+      cleanup();
+    }
+    const user = await openDialog();
+    await user.clear(screen.getByLabelText("Nome"));
+    await user.type(screen.getByLabelText("Nome"), ` ${"n".repeat(200)} `);
+    await user.click(screen.getByRole("button", { name: "Salvar" }));
+    await waitFor(() => expect(updateProduct).toHaveBeenCalledTimes(1));
   });
 
   it("shows field errors under their field and keeps the typed values", async () => {

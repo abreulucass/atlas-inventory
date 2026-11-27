@@ -14,10 +14,15 @@ import {
 } from "@/components/ui/dialog";
 import { createCategory } from "@/lib/catalog-actions";
 import type { CreateState } from "@/lib/company-actions";
+import { validateCategory } from "@/lib/validation";
 
 export function CreateCategoryDialog() {
   const [open, setOpen] = useState(false);
   const [state, formAction] = useActionState<CreateState, FormData>(async (prev, data) => {
+    // Same rules as the Server Action, run first so a bad value makes no request.
+    const name = String(data.get("name") ?? "");
+    const fieldErrors = validateCategory({ name });
+    if (Object.keys(fieldErrors).length > 0) return { fieldErrors, values: { name } };
     const next = await createCategory(prev, data);
     if (next.ok) setOpen(false);
     return next;
