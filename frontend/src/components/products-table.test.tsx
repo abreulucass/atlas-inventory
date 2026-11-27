@@ -1,5 +1,11 @@
 import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("server-only", () => ({}));
+vi.mock("next/headers", () => ({
+  cookies: async () => ({ get: (name: string) => ({ name, value: "tok" }) }),
+}));
+vi.mock("next/navigation", () => ({ redirect: vi.fn(), notFound: vi.fn() }));
 
 vi.mock("@/lib/catalog-actions", () => ({
   updateProduct: vi.fn(),
@@ -15,7 +21,8 @@ vi.mock("@/lib/company-actions", () => ({
   unarchiveWarehouse: vi.fn(),
 }));
 
-import type { Category, Product } from "@/lib/api";
+import { getProducts, type Category, type Product } from "@/lib/api";
+import { hasProductFilter, parseProductParams, productApiQuery } from "@/lib/catalog-query";
 import { canManage } from "@/lib/roles";
 
 import { ProductsTable } from "./products-table";
@@ -43,9 +50,22 @@ const products: Product[] = [
 
 const rows = () => screen.getAllByRole("row").slice(1);
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe("ProductsTable", () => {
-  it("shows SKU, name, category, unit and status in the API order", () => {
-    render(<ProductsTable products={products} categories={categories} canManage={false} filtered={false} />);
+  it("shows SKU, name, category, unit and status in the API order", async () => {
+    // The rows come from GET /api/products with the access token, as the page reads them.
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ items: products, page: 0, size: 20, totalItems: 3, totalPages: 1 })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("ATLAS_API_URL", "http://api.test");
+    const page = await getProducts(productApiQuery(parseProductParams({})));
+    vi.unstubAllEnvs();
+    expect(fetchMock.mock.calls[0][0]).toBe("http://api.test/api/products?page=0");
+    expect(fetchMock.mock.calls[0][1].method ?? "GET").toBe("GET");
+    expect(fetchMock.mock.calls[0][1].headers.get("Authorization")).toBe("Bearer tok");
+    render(<ProductsTable products={page.items} categories={categories} canManage={false} filtered={false} />);
     const [first, second] = rows();
     expect(within(first).getAllByRole("cell").map((c) => c.textContent)).toEqual([
       "AGUA-1",
@@ -88,6 +108,27 @@ describe("ProductsTable", () => {
     rerender(<ProductsTable products={[]} categories={categories} canManage filtered />);
     expect(screen.getByText("Nenhum produto encontrado.")).toBeInTheDocument();
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    // The filter state comes from the url: only q, categoria or a non-default status is a search.
+    const CAT = "0b8f2f4e-6f1c-4c43-9a43-2f6f9a1b7c10";
+    const cases: [Record<string, string>, string][] = [
+      [{}, "Nenhum produto cadastrado."],
+      [{ pagina: "3" }, "Nenhum produto cadastrado."],
+      [{ q: "zzz" }, "Nenhum produto encontrado."],
+      [{ categoria: CAT }, "Nenhum produto encontrado."],
+      [{ status: "arquivados" }, "Nenhum produto encontrado."],
+      [{ status: "todos" }, "Nenhum produto encontrado."],
+    ];
+    for (const [params, text] of cases) {
+      rerender(
+        <ProductsTable
+          products={[]}
+          categories={categories}
+          canManage
+          filtered={hasProductFilter(parseProductParams(params))}
+        />,
+      );
+      expect(screen.getByText(text), JSON.stringify(params)).toBeInTheDocument();
+    }
   });
 
   it("gates Editar and archive controls by role and status", () => {

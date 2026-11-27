@@ -53,6 +53,16 @@ describe("CategoriesPage", () => {
     await renderPage({ arquivadas: "1" });
     expect(getCategories).toHaveBeenCalledExactlyOnceWith(true);
     expect(screen.getByRole("link", { name: "Mostrar arquivadas" })).toHaveAttribute("href", "/categorias");
+    // Any other value, or none, asks for the active categories only.
+    for (const params of [{} as Record<string, string>, { arquivadas: "true" }, { arquivadas: "" }, { arquivadas: "0" }, { arquivadas: ["1", "1"] }]) {
+      getCategories.mockClear();
+      await renderPage(params);
+      expect(getCategories, JSON.stringify(params)).toHaveBeenCalledExactlyOnceWith(false);
+      expect(screen.getByRole("link", { name: "Mostrar arquivadas" })).toHaveAttribute(
+        "href",
+        "/categorias?arquivadas=1",
+      );
+    }
   });
 
   it.each([
