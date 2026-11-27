@@ -29,6 +29,7 @@ export function OrganizationSwitcher({
     return <span className="max-w-40 truncate px-2 text-sm font-medium">{active?.name}</span>;
   }
 
+  // The menu closes on every selection; the pending state and any error stay next to the trigger.
   const select = (id: string) => {
     if (id === activeId) return;
     setError(undefined);
@@ -39,10 +40,15 @@ export function OrganizationSwitcher({
   };
 
   return (
-    <div className="flex min-w-0 items-center gap-2">
+    <div className="flex min-w-0 flex-col items-end">
       <DropdownMenu>
         <DropdownMenuTrigger
-          className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "max-w-40 sm:max-w-56")}
+          aria-busy={pending}
+          className={cn(
+            buttonVariants({ variant: "ghost", size: "sm" }),
+            "max-w-40 sm:max-w-56",
+            pending && "opacity-60",
+          )}
         >
           <span className="truncate">{active?.name}</span>
           <ChevronsUpDownIcon />
@@ -52,7 +58,6 @@ export function OrganizationSwitcher({
             <DropdownMenuItem
               key={o.id}
               disabled={pending}
-              closeOnClick={false}
               aria-current={o.id === activeId ? "true" : undefined}
               onClick={() => select(o.id)}
             >
@@ -68,7 +73,7 @@ export function OrganizationSwitcher({
         </DropdownMenuContent>
       </DropdownMenu>
       {error && (
-        <p role="alert" className="max-w-48 truncate text-xs text-destructive" title={error}>
+        <p role="alert" className="px-2 text-xs text-destructive">
           {error}
         </p>
       )}

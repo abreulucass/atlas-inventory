@@ -25,6 +25,16 @@ async function otherOrganizationWith(request: APIRequestContext, member: TestUse
     data: { email: member.email, role: "ADMIN" },
   });
   expect(added.ok()).toBe(true);
+  return { ownerToken: accessToken as string };
+}
+
+// The other organization's owner removes `member` from it.
+async function removeMember(request: APIRequestContext, ownerToken: string, member: TestUser) {
+  const headers = { Authorization: `Bearer ${ownerToken}` };
+  const members = await (await request.get(`${API}/api/members`, { headers })).json();
+  const userId = members.find((m: { email: string }) => m.email === member.email).userId;
+  const removed = await request.delete(`${API}/api/members/${userId}`, { headers });
+  expect(removed.ok()).toBe(true);
 }
 
 // Registers A (org A), gives A a second membership, and reloads so the header lists both.
@@ -34,9 +44,9 @@ async function userWithTwoOrganizations(
   otherName = `Outra ${newUser().slug}`,
 ) {
   const user = await register(page);
-  await otherOrganizationWith(request, user, otherName);
+  const { ownerToken } = await otherOrganizationWith(request, user, otherName);
   await page.reload();
-  return { user, otherName };
+  return { user, otherName, ownerToken };
 }
 
 const switchTo = async (page: Page, name: string) => {
@@ -146,5 +156,39 @@ test.describe("organizations", () => {
       }),
     );
     expect(Math.max(...centers) - Math.min(...centers)).toBeLessThan(4);
+  });
+
+  test("shows the membership error in full at 375 px when the membership is gone", async ({
+    page,
+    request,
+  }) => {
+    await page.setViewportSize(MOBILE);
+    const { user, otherName, ownerToken } = await userWithTwoOrganizations(page, request);
+    const before = await cookieValues(page);
+    await removeMember(request, ownerToken, user);
+
+    await switchTo(page, otherName);
+    const alert = page.locator("header [role=alert]");
+    await expect(alert).toHaveText("Você não faz mais parte desta organização.");
+    await expect(alert).toBeVisible();
+    const box = (await alert.boundingBox())!;
+    expect(box.width).toBeGreaterThan(0);
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(MOBILE.width);
+    expect(await alert.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    expect(
+      await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth),
+    ).toBe(false);
+    expect(await cookieValues(page)).toEqual(before);
+  });
+
+  test("closes the menu when the active organization is selected", async ({ page, request }) => {
+    await userWithTwoOrganizations(page, request);
+    const trigger = page.getByRole("button", { name: /^Org / });
+    await trigger.click();
+    await page.getByRole("menuitem", { name: /^Org / }).click();
+    await expect(page.getByRole("menu")).toBeHidden();
+    await expect(trigger).toBeFocused();
+    await expect(page).toHaveURL("/");
   });
 });

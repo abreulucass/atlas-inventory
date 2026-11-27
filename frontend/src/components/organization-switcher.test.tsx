@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -62,18 +62,38 @@ describe("OrganizationSwitcher", () => {
   it("disables the items while switching", async () => {
     let finish!: () => void;
     switchOrganization.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
+    const user = await open([acme, beta, old]);
+    await user.click(await screen.findByRole("menuitem", { name: "Beta" }));
+    expect(switchOrganization).toHaveBeenCalledTimes(1);
+    // the menu closed after the first selection; reopen and try every item
+    await user.click(screen.getByRole("button", { name: /Acme/ }));
+    for (const item of await screen.findAllByRole("menuitem")) {
+      expect(item).toHaveAttribute("aria-disabled", "true");
+      await user.click(item);
+    }
+    expect(switchOrganization).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+  });
+
+  it("closes the menu and returns focus to the trigger after selecting another organization", async () => {
+    let finish!: () => void;
+    switchOrganization.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
     const user = await open([acme, beta]);
     await user.click(await screen.findByRole("menuitem", { name: "Beta" }));
-    for (const item of screen.getAllByRole("menuitem")) {
-      expect(item).toHaveAttribute("aria-disabled", "true");
-    }
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    const trigger = screen.getByRole("button", { name: /Acme/ });
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(trigger).toHaveAttribute("aria-busy", "true");
     await act(async () => finish());
+    await waitFor(() => expect(trigger).toHaveAttribute("aria-busy", "false"));
   });
 
   it("does nothing for the active organization", async () => {
     const user = await open([acme, beta]);
     await user.click(await screen.findByRole("menuitem", { name: "Acme" }));
     expect(switchOrganization).not.toHaveBeenCalled();
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("button", { name: /Acme/ })).toHaveFocus());
   });
 
   it("shows the membership error", async () => {
@@ -82,6 +102,9 @@ describe("OrganizationSwitcher", () => {
     const user = await open([acme, beta]);
     await user.click(await screen.findByRole("menuitem", { name: "Beta" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    // the error survives the menu closing and sits next to the trigger
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
+    expect(screen.getByRole("alert")).not.toHaveClass("truncate");
   });
 
   it("shows the unavailable error", async () => {
