@@ -99,7 +99,7 @@ class ApiDocsIT {
 		Set<String> documented = new HashSet<>();
 		java.util.Map<String, java.util.Map<String, Object>> paths = doc.read("$.paths");
 		paths.forEach((path, ops) -> ops.keySet().forEach(m -> documented.add(m + " " + path)));
-		assertThat(documented).containsAll(expected);
+		assertThat(documented).containsAll(expected).contains("get /api/me/organizations");
 	}
 
 	@Test
@@ -130,6 +130,8 @@ class ApiDocsIT {
 				}
 			}
 		}
+		Object organizations = paths.get("/api/me/organizations").get("get").get("security");
+		assertThat(organizations == null ? doc.read("$.security", List.class) : organizations).isEqualTo(bearer);
 		assertThat(publicOps).isEqualTo(PUBLIC_AUTH.size());
 		assertThat(protectedOps).isPositive();
 	}
