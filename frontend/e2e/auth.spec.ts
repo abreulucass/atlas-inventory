@@ -95,33 +95,67 @@ test.describe("logout", () => {
 
 test.describe("session", () => {
   test("never exposes the tokens to the page", async ({ page, context }) => {
-    const exposed: string[] = [];
-    page.on("response", async (response) => {
-      const headers = Object.entries(await response.allHeaders())
-        .filter(([name]) => name !== "set-cookie")
-        .map(([name, value]) => `${name}: ${value}`);
-      const body = await response.text().catch(() => "");
-      exposed.push(...headers, body);
+    type Captured = { method: string; path: string; status: number; setsSession: boolean; text: string };
+    const pending: Promise<Captured>[] = [];
+    page.on("response", (response) => {
+      pending.push(
+        (async () => {
+          const all = await response.allHeaders();
+          const headers = Object.entries(all)
+            .filter(([name]) => name !== "set-cookie")
+            .map(([name, value]) => `${name}: ${value}`);
+          // Redirects have no body; RSC payloads and documents do.
+          const body = await response.text().catch(() => "");
+          return {
+            method: response.request().method(),
+            path: new URL(response.url()).pathname,
+            status: response.status(),
+            setsSession: (all["set-cookie"] ?? "").includes("atlas_refresh="),
+            text: [...headers, body].join("\n"),
+          };
+        })(),
+      );
     });
+    const pairs: { access?: string; refresh?: string }[] = [];
+    const issued = async () => {
+      const pair = await cookieValues(page);
+      expect(pair.access).toBeTruthy();
+      expect(pair.refresh).toBeTruthy();
+      pairs.push(pair);
+    };
 
     const user = await register(page);
+    await issued();
     await context.clearCookies();
     await page.goto("/entrar");
     await fillLogin(page, user.email, user.password);
     await expect(page).toHaveURL("/");
     await expect(page.getByRole("heading", { name: `Olá, ${user.name}` })).toBeVisible();
+    await issued();
+    await context.clearCookies({ name: ACCESS_COOKIE });
+    await page.reload();
+    await expect(page.getByRole("heading", { name: `Olá, ${user.name}` })).toBeVisible();
+    await issued();
 
-    const { access, refresh } = await cookieValues(page);
-    expect(access).toBeTruthy();
-    expect(refresh).toBeTruthy();
-    expect(exposed.length).toBeGreaterThan(0);
-    for (const text of exposed) {
-      expect(text).not.toContain(access!);
-      expect(text).not.toContain(refresh!);
+    const captured = await Promise.all(pending);
+    const found = (method: string, path: string) =>
+      captured.some((c) => c.method === method && c.path === path && c.setsSession);
+    expect(found("POST", "/cadastro"), "register response captured").toBe(true);
+    expect(found("POST", "/entrar"), "login response captured").toBe(true);
+    expect(found("GET", "/"), "refresh response captured").toBe(true);
+    expect(captured.some((c) => (c.status >= 300 && c.status < 400) || c.text.includes("x-action-redirect"))).toBe(true);
+    expect(new Set(pairs.map((p) => p.refresh)).size).toBe(3);
+    for (const { access, refresh } of pairs) {
+      for (const { text } of captured) {
+        expect(text).not.toContain(access!);
+        expect(text).not.toContain(refresh!);
+      }
     }
     const documentCookie = await page.evaluate(() => document.cookie);
-    expect(documentCookie).not.toContain(access!);
-    expect(documentCookie).not.toContain(refresh!);
+    for (const { access, refresh } of pairs) {
+      expect(documentCookie).not.toContain(access!);
+      expect(documentCookie).not.toContain(refresh!);
+    }
     expect(documentCookie).not.toContain("atlas_");
   });
 
