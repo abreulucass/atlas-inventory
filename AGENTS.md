@@ -5,7 +5,7 @@
 **Atlas Inventory** — gestão de estoque multiempresa e multidepósito, com foco em consistência de dados.
 
 - `backend/` — Java 25 + Spring Boot 4.2 + Spring Modulith 2.2, Maven.
-- `frontend/` — Next.js + TypeScript + shadcn/ui (a criar).
+- `frontend/` — Next.js 16 + TypeScript + shadcn/ui, npm e Node 24.
 - `docs/` — decisões, ADRs e convenções.
 
 ## Comandos
@@ -18,11 +18,19 @@ Backend, em `backend/` (JDK 25 e Docker):
 - `./mvnw verify` — tudo, incluindo os `*IT` com Testcontainers; é o que o CI roda.
 - Migrações em `src/main/resources/db/migration/`, rodam como `atlas_owner`; a aplicação conecta como `atlas_app`.
 
+Frontend, em `frontend/` (Node 24; `ATLAS_API_URL` aponta para o backend, só no servidor):
+
+- `npm run dev` — app em `http://localhost:3000`; precisa do backend rodando.
+- `npm run lint`, `npm run typecheck`, `npm test` — ESLint, `tsc` e Vitest (sem backend).
+- `npm run build && npm run check:bundle` — build e verificação de que o bundle não vaza a URL da API.
+- `npm run test:e2e` — Playwright contra o backend real (Compose + `spring-boot:run` no ar); é o que o CI roda.
+
 ## Regras de arquitetura
 
 - Monólito modular ([ADR-001](docs/adr/ADR-001-monolito-modular.md)): módulos só se acessam pela API pública uns dos outros ou por eventos; fronteiras verificadas com Spring Modulith em teste.
 - Auth (módulo `access`): JWT HS256 + refresh rotativo; endpoints públicos `/api/auth/register|login|refresh|logout`, o resto exige `Bearer`. O tenant vem do claim `org`, nunca de header/param/body.
 - Multi-tenant ([ADR-002](docs/adr/ADR-002-multi-tenancy.md)): toda tabela de uma organização tem `tenant_id` com RLS forçada; o tenant vem só do contexto autenticado, nunca da requisição.
+- Frontend (BFF): o navegador só fala com o Next; `proxy.ts` e Server Actions guardam os tokens em cookies httpOnly e renovam a sessão; token nunca em corpo de resposta, cabeçalho ou bundle.
 
 ## Convenções
 
