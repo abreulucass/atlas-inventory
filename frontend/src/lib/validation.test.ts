@@ -4,8 +4,10 @@ import {
   normalizeEmail,
   slugify,
   strip,
+  validateCompany,
   validateLogin,
   validateRegister,
+  validateWarehouse,
   type RegisterField,
   type RegisterInput,
 } from "./validation";
@@ -204,5 +206,23 @@ describe("Java parity (REG-04)", () => {
 
   it("treats a Java-blank login e-mail as missing", () => {
     expect(validateLogin({ email: "\u3000", password: "x" }).email).toBe(MESSAGES.loginEmail);
+  });
+});
+
+describe("validateCompany and validateWarehouse", () => {
+  it("accepts a name of 1 to 120 characters after trim", () => {
+    expect(validateCompany({ name: " a " })).toEqual({});
+    expect(validateCompany({ name: "x".repeat(120) })).toEqual({});
+    expect(validateCompany({ name: "  " })).toHaveProperty("name");
+    expect(validateCompany({ name: "x".repeat(121) })).toHaveProperty("name");
+  });
+
+  it("accepts a code of 1 to 20 letters, digits or hyphens after trim", () => {
+    for (const code of [" cd-1 ", "A", "x".repeat(20)]) {
+      expect(validateWarehouse({ code, name: "N" })).toEqual({});
+    }
+    for (const code of ["", "x".repeat(21), "A B", "Á1", "a_b"]) {
+      expect(validateWarehouse({ code, name: "N" })).toHaveProperty("code");
+    }
   });
 });

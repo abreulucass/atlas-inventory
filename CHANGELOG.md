@@ -8,6 +8,7 @@ Todas as mudanças relevantes ficam neste arquivo. O formato segue o
 
 ### Adicionado
 
+- Telas de empresas e depósitos no frontend: `/empresas` lista as empresas (nome, CNPJ com máscara, status) e `/empresas/[id]` mostra a empresa e seus depósitos; `OWNER`/`ADMIN` criam em modal, arquivam com confirmação e desarquivam direto, com erros do backend em pt-BR; arquivados ficam ocultos atrás de um filtro na URL; `MEMBER` vê só o que o acesso dele permite, sem controles de escrita.
 - Troca de organização: `GET /api/me/organizations` lista as organizações do usuário (id, nome, slug, papel e status, inclusive arquivadas) e o header do frontend ganha um seletor que troca a sessão por Server Action (tokens só em cookies httpOnly) e leva ao início; com uma só organização, mostra apenas o nome.
 - Frontend (`frontend/`, Next.js 16 + shadcn/ui): cadastro com organização (slug sugerido do nome), login, logout e shell autenticado (sidebar, menu do usuário com papel, tema claro/escuro/sistema), em pt-BR. BFF com `proxy.ts` e Server Actions: tokens só em cookies httpOnly, renovação de sessão com uma única chamada de refresh por token, rotas protegidas e origem das ações verificada. Vitest, Playwright contra o backend real, verificação de vazamento no bundle e workflow `Frontend` no CI.
 - Documentação da API: OpenAPI e Swagger UI atrás de `ATLAS_API_DOCS_ENABLED`, e README do MVP com o que existe, roadmap e todos os endpoints.

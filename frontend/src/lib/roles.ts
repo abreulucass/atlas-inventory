@@ -7,3 +7,5 @@ const LABELS: Record<Role, string> = {
 };
 
 export const roleLabel = (role: Role): string => LABELS[role];
+
+export const canManage = (role: Role): boolean => role === "OWNER" || role === "ADMIN";

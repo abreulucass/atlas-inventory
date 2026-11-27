@@ -1,6 +1,6 @@
-import Link from "next/link";
-import { HomeIcon } from "lucide-react";
+import { BuildingIcon, HomeIcon } from "lucide-react";
 
+import { NavLink } from "@/components/nav-link";
 import {
   Sidebar,
   SidebarContent,
@@ -8,8 +8,6 @@ import {
   SidebarGroupContent,
   SidebarHeader,
   SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
 } from "@/components/ui/sidebar";
 
 export function AppSidebar() {
@@ -22,12 +20,14 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              <SidebarMenuItem>
-                <SidebarMenuButton isActive render={<Link href="/" />}>
-                  <HomeIcon />
-                  <span>Início</span>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
+              <NavLink href="/">
+                <HomeIcon />
+                <span>Início</span>
+              </NavLink>
+              <NavLink href="/empresas" prefix>
+                <BuildingIcon />
+                <span>Empresas</span>
+              </NavLink>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

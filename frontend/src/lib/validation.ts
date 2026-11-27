@@ -91,3 +91,24 @@ export function validateLogin(
   if (input.password === "") errors.password = MESSAGES.loginPwd;
   return errors;
 }
+
+const WAREHOUSE_CODE = /^[A-Za-z0-9-]{1,20}$/;
+
+export const COMPANY_MESSAGES = {
+  name: "Informe um nome de até 120 caracteres.",
+  code: "Use até 20 letras, números ou hífen.",
+} as const;
+
+export function validateCompany(input: { name: string }): Partial<Record<"name", string>> {
+  return validName(input.name) ? {} : { name: COMPANY_MESSAGES.name };
+}
+
+export function validateWarehouse(input: {
+  code: string;
+  name: string;
+}): Partial<Record<"code" | "name", string>> {
+  const errors: Partial<Record<"code" | "name", string>> = {};
+  if (!WAREHOUSE_CODE.test(strip(input.code))) errors.code = COMPANY_MESSAGES.code;
+  if (!validName(input.name)) errors.name = COMPANY_MESSAGES.name;
+  return errors;
+}

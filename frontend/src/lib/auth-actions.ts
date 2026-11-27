@@ -3,7 +3,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
-import { backendFetch, ServiceUnavailableError } from "./backend";
+import { backendFetch, field, post, UNAVAILABLE } from "./backend";
 import { safeNext } from "./safe-next";
 import {
   ACCESS_COOKIE,
@@ -26,32 +26,16 @@ export type FormState = {
   values?: Record<string, string>;
 };
 
-const UNAVAILABLE = "Serviço indisponível. Tente novamente em instantes.";
 const INVALID_CREDENTIALS = "E-mail ou senha inválidos.";
 const CHECK_DATA = "Verifique os dados informados.";
 const DUPLICATE_EMAIL = "Este e-mail já está cadastrado.";
 const NOT_A_MEMBER = "Você não faz mais parte desta organização.";
 const DUPLICATE_SLUG = "Este endereço já está em uso.";
 
-const field = (data: FormData, name: string) => {
-  const value = data.get(name);
-  return typeof value === "string" ? value : "";
-};
-
 async function startSession(res: Response) {
   const jar = await cookies();
   for (const c of sessionCookies((await res.json()) as TokenPair)) {
     jar.set(c.name, c.value, c.options);
-  }
-}
-
-// Returns the response, or null when the backend is unavailable; other errors propagate.
-async function post(path: string, body: unknown, token?: string): Promise<Response | null> {
-  try {
-    return await backendFetch(path, { method: "POST", body: JSON.stringify(body), token });
-  } catch (e) {
-    if (e instanceof ServiceUnavailableError) return null;
-    throw e;
   }
 }
 
