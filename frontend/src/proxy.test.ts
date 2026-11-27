@@ -111,4 +111,26 @@ describe("proxy", () => {
     expect(res.headers.get("x-middleware-next")).toBe("1");
     expect(res.cookies.get("atlas_refresh")).toBeUndefined();
   });
+
+  it("refuses a state change from another origin before refreshing", async () => {
+    const req = new NextRequest(new URL("/entrar", "http://app.test"), {
+      method: "POST",
+      headers: { origin: "https://evil.example", cookie: "atlas_refresh=r1" },
+    });
+    const res = await proxy(req);
+    expect(res.status).toBe(403);
+    expect(res.headers.get("set-cookie")).toBeNull();
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
+  it("lets a same-origin state change through", async () => {
+    refreshMock.mockResolvedValue(pair);
+    const req = new NextRequest(new URL("/", "http://app.test"), {
+      method: "POST",
+      headers: { origin: "http://app.test", cookie: "atlas_refresh=r1" },
+    });
+    const res = await proxy(req);
+    expect(res.status).toBe(200);
+    expect(refreshMock).toHaveBeenCalledWith("r1");
+  });
 });

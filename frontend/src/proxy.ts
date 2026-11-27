@@ -23,7 +23,14 @@ function clearSession(res: NextResponse) {
   return res;
 }
 
+const SAFE_METHODS = new Set(["GET", "HEAD"]);
+
 export async function proxy(req: NextRequest): Promise<NextResponse> {
+  // Refuse a cross-origin state change (Server Actions included) before any backend call (SES-08).
+  const origin = req.headers.get("origin");
+  if (!SAFE_METHODS.has(req.method) && origin !== null && origin !== req.nextUrl.origin) {
+    return new NextResponse(null, { status: 403 });
+  }
   const { pathname, search } = req.nextUrl;
   const isPublic = PUBLIC_PATHS.has(pathname);
   const next = pathname + search;

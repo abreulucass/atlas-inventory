@@ -147,33 +147,64 @@ test.describe("session", () => {
     expect(after.refresh).not.toBe(before.refresh);
   });
 
-  test("refuses actions from another origin", async ({ page, context }) => {
-    const user = await register(page);
-    await context.clearCookies();
-
+  test("refuses actions from another origin", async ({ page, context, request }) => {
     // SPEC_DEVIATION: Chromium ignores an Origin override in route.continue (the wire keeps the
     // app's origin), so the intercepted POST is replayed with route.fetch, which sends the header.
-    const refused: { status: number; headers: Record<string, string> }[] = [];
-    await page.route("**/entrar", async (route) => {
-      if (route.request().method() !== "POST") return route.continue();
-      const response = await route.fetch({
-        headers: { ...route.request().headers(), origin: "https://evil.example" },
+    const forge = async (path: string) => {
+      const refused: { status: number; headers: Record<string, string> }[] = [];
+      await page.route(path, async (route) => {
+        if (route.request().method() !== "POST") return route.continue();
+        const response = await route.fetch({
+          headers: { ...route.request().headers(), origin: "https://evil.example" },
+        });
+        refused.push({ status: response.status(), headers: response.headers() });
+        await route.fulfill({ response });
       });
-      refused.push({ status: response.status(), headers: response.headers() });
-      await route.fulfill({ response });
-    });
+      return refused;
+    };
+    const expectRefused = async (refused: { status: number; headers: Record<string, string> }[]) => {
+      await expect.poll(() => refused.length).toBe(1);
+      expect(refused[0].status).toBe(403);
+      expect(refused[0].headers["set-cookie"]).toBeUndefined();
+      expect(refused[0].headers["x-action-redirect"]).toBeUndefined();
+    };
 
+    // Login.
+    const user = await register(page);
+    await context.clearCookies();
+    const login = await forge("**/entrar");
     await page.goto("/entrar");
     await fillLogin(page, user.email, user.password);
-    await expect.poll(() => refused.length).toBe(1);
-
-    expect(refused[0].status).toBe(500);
-    expect(refused[0].headers["set-cookie"]).toBeUndefined();
-    expect(refused[0].headers["x-action-redirect"]).toBeUndefined();
+    await expectRefused(login);
     await page.waitForTimeout(500);
     await expect(page).toHaveURL("/entrar");
     expect((await cookieValues(page)).access).toBeUndefined();
     expect((await cookieValues(page)).refresh).toBeUndefined();
+    await page.unrouteAll({ behavior: "wait" });
+
+    // Register: refused, and the same e-mail can still be registered normally.
+    const fresh = newUser();
+    const signUp = await forge("**/cadastro");
+    await page.goto("/cadastro");
+    await fillRegistration(page, fresh);
+    await expectRefused(signUp);
+    await page.waitForTimeout(500);
+    await expect(page).toHaveURL("/cadastro");
+    expect((await cookieValues(page)).access).toBeUndefined();
+    await page.unrouteAll({ behavior: "wait" });
+    await register(page, fresh);
+
+    // Logout: refused, and the session's refresh token still works at the backend.
+    const { refresh } = await cookieValues(page);
+    const signOutForged = await forge("http://localhost:3000/");
+    await page.getByRole("button", { name: /Ana / }).click();
+    await page.getByRole("menuitem", { name: "Sair" }).click();
+    await expectRefused(signOutForged);
+    await page.unrouteAll({ behavior: "wait" });
+    const backend = await request.post("http://localhost:8080/api/auth/refresh", {
+      data: { refreshToken: refresh },
+    });
+    expect(backend.status()).toBe(200);
   });
 
   test("keeps the session and shows the unavailable page when the refresh is unavailable", async ({
