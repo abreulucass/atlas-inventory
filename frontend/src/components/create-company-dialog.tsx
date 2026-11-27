@@ -13,10 +13,16 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createCompany, type CreateState } from "@/lib/company-actions";
+import { validateCompany } from "@/lib/validation";
 
 export function CreateCompanyDialog() {
   const [open, setOpen] = useState(false);
   const [state, formAction] = useActionState<CreateState, FormData>(async (prev, data) => {
+    const name = String(data.get("name") ?? "");
+    const fieldErrors = validateCompany({ name });
+    if (Object.keys(fieldErrors).length > 0) {
+      return { fieldErrors, values: { name, cnpj: String(data.get("cnpj") ?? "") } };
+    }
     const next = await createCompany(prev, data);
     if (next.ok) setOpen(false);
     return next;

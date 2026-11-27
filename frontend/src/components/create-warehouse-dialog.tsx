@@ -13,10 +13,15 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { createWarehouse, type CreateState } from "@/lib/company-actions";
+import { validateWarehouse } from "@/lib/validation";
 
 export function CreateWarehouseDialog({ companyId }: { companyId: string }) {
   const [open, setOpen] = useState(false);
   const [state, formAction] = useActionState<CreateState, FormData>(async (prev, data) => {
+    const code = String(data.get("code") ?? "");
+    const name = String(data.get("name") ?? "");
+    const fieldErrors = validateWarehouse({ code, name });
+    if (Object.keys(fieldErrors).length > 0) return { fieldErrors, values: { code, name } };
     const next = await createWarehouse(prev, data);
     if (next.ok) setOpen(false);
     return next;
