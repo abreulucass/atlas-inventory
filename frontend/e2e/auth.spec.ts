@@ -175,4 +175,26 @@ test.describe("session", () => {
     expect((await cookieValues(page)).access).toBeUndefined();
     expect((await cookieValues(page)).refresh).toBeUndefined();
   });
+
+  test("keeps the session and shows the unavailable page when the refresh is unavailable", async ({
+    page,
+    context,
+  }) => {
+    // Port 3001 runs the same build against a backend whose /api/auth/refresh answers 503.
+    const app = "http://localhost:3001";
+    const user = newUser();
+    await page.goto(`${app}/cadastro`);
+    await fillRegistration(page, user);
+    await expect(page).toHaveURL(`${app}/`);
+    const before = await cookieValues(page);
+
+    await context.clearCookies({ name: ACCESS_COOKIE });
+    await page.reload();
+
+    await expect(page).toHaveURL(`${app}/`);
+    await expect(page.getByText("Serviço indisponível. Tente novamente em instantes.")).toBeVisible();
+    const after = await cookieValues(page);
+    expect(after.refresh).toBe(before.refresh);
+    expect(after.access).toBeUndefined();
+  });
 });

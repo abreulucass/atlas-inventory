@@ -1,5 +1,7 @@
 "use client";
 
+// Root boundary: it also catches the (app) layout, whose getMe fails when the backend is unavailable.
+
 import { Button } from "@/components/ui/button";
 
 export default function AppError({ retry }: { retry: () => void }) {

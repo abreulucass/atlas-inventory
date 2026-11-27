@@ -57,4 +57,10 @@ describe("getMe", () => {
     await expect(getMe()).rejects.toThrow("NEXT_REDIRECT /auth/expired");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("fails as unavailable without redirecting when only the refresh cookie is left", async () => {
+    jar.set("atlas_refresh", "r1");
+    await expect(getMe()).rejects.toMatchObject({ name: "ServiceUnavailableError" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
