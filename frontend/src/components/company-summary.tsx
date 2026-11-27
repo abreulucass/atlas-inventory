@@ -15,7 +15,7 @@ export function CompanySummary({ company, canManage }: { company: Company; canMa
       </Link>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0 space-y-1">
-          <h1 className="text-2xl font-semibold break-words">{company.name}</h1>
+          <h1 className="text-2xl font-semibold [overflow-wrap:anywhere]">{company.name}</h1>
           <p className="text-sm text-muted-foreground">CNPJ: {formatCnpj(company.cnpj)}</p>
           <Badge variant={archived ? "secondary" : "default"}>{archived ? "Arquivada" : "Ativa"}</Badge>
         </div>

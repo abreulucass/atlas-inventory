@@ -10,34 +10,32 @@ export function WarehousesTable({ warehouses, companyId, canManage }: Props) {
     return <p className="text-muted-foreground">Nenhum depósito cadastrado.</p>;
   }
   return (
-    <div className="overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Código</TableHead>
-            <TableHead>Nome</TableHead>
-            <TableHead>Status</TableHead>
-            {canManage && <TableHead>Ações</TableHead>}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {warehouses.map((warehouse) => {
-            const archived = warehouse.status === "ARCHIVED";
-            return (
-              <TableRow key={warehouse.id}>
-                <TableCell className="font-medium">{warehouse.code}</TableCell>
-                <TableCell>{warehouse.name}</TableCell>
-                <TableCell>{archived ? <Badge variant="secondary">Arquivado</Badge> : "Ativo"}</TableCell>
-                {canManage && (
-                  <TableCell>
-                    <ArchiveControl kind="warehouse" companyId={companyId} id={warehouse.id} archived={archived} />
-                  </TableCell>
-                )}
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Código</TableHead>
+          <TableHead>Nome</TableHead>
+          <TableHead>Status</TableHead>
+          {canManage && <TableHead>Ações</TableHead>}
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {warehouses.map((warehouse) => {
+          const archived = warehouse.status === "ARCHIVED";
+          return (
+            <TableRow key={warehouse.id}>
+              <TableCell className="font-medium">{warehouse.code}</TableCell>
+              <TableCell className="whitespace-normal [overflow-wrap:anywhere]">{warehouse.name}</TableCell>
+              <TableCell>{archived ? <Badge variant="secondary">Arquivado</Badge> : "Ativo"}</TableCell>
+              {canManage && (
+                <TableCell>
+                  <ArchiveControl kind="warehouse" companyId={companyId} id={warehouse.id} archived={archived} />
+                </TableCell>
+              )}
+            </TableRow>
+          );
+        })}
+      </TableBody>
+    </Table>
   );
 }

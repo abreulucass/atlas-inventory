@@ -10,31 +10,29 @@ export function CompaniesTable({ companies }: { companies: Company[] }) {
     return <p className="text-muted-foreground">Nenhuma empresa cadastrada.</p>;
   }
   return (
-    <div className="overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Nome</TableHead>
-            <TableHead>CNPJ</TableHead>
-            <TableHead>Status</TableHead>
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead>Nome</TableHead>
+          <TableHead>CNPJ</TableHead>
+          <TableHead>Status</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {companies.map((company) => (
+          <TableRow key={company.id}>
+            <TableCell className="whitespace-normal [overflow-wrap:anywhere]">
+              <Link href={`/empresas/${company.id}`} className="font-medium underline-offset-4 hover:underline">
+                {company.name}
+              </Link>
+            </TableCell>
+            <TableCell>{formatCnpj(company.cnpj)}</TableCell>
+            <TableCell>
+              {company.status === "ACTIVE" ? "Ativa" : <Badge variant="secondary">Arquivada</Badge>}
+            </TableCell>
           </TableRow>
-        </TableHeader>
-        <TableBody>
-          {companies.map((company) => (
-            <TableRow key={company.id}>
-              <TableCell>
-                <Link href={`/empresas/${company.id}`} className="font-medium underline-offset-4 hover:underline">
-                  {company.name}
-                </Link>
-              </TableCell>
-              <TableCell>{formatCnpj(company.cnpj)}</TableCell>
-              <TableCell>
-                {company.status === "ACTIVE" ? "Ativa" : <Badge variant="secondary">Arquivada</Badge>}
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+        ))}
+      </TableBody>
+    </Table>
   );
 }
