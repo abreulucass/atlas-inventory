@@ -29,4 +29,10 @@ public interface MembershipRepository extends JpaRepository<Membership, UUID> {
 			order by u.name, u.email""")
 	List<MemberView> findMembers(UUID organizationId);
 
+	@Query("""
+			select new io.github.abreulucass.atlas.access.internal.OrganizationView(o.id, o.name, o.slug, m.role, o.archivedAt)
+			from Membership m, Organization o where o.id = m.organizationId and m.userId = :userId
+			order by o.name, o.slug""")
+	List<OrganizationView> findOrganizations(UUID userId);
+
 }

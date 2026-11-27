@@ -54,7 +54,11 @@ abstract class AccessITSupport {
 	}
 
 	Session register(String name) throws Exception {
-		String id = UUID.randomUUID().toString().substring(0, 8);
+		return register(name, UUID.randomUUID().toString().substring(0, 8));
+	}
+
+	/** Registers with a chosen id, which fixes the email and the organization slug ("org-" + id). */
+	Session register(String name, String id) throws Exception {
 		String email = id + "@example.com";
 		String body = mvc.perform(post("/api/auth/register").contentType(MediaType.APPLICATION_JSON).content("""
 				{"name": "%s", "email": "%s", "password": "%s", "organizationName": "Org %s",

@@ -30,6 +30,7 @@ const UNAVAILABLE = "Serviço indisponível. Tente novamente em instantes.";
 const INVALID_CREDENTIALS = "E-mail ou senha inválidos.";
 const CHECK_DATA = "Verifique os dados informados.";
 const DUPLICATE_EMAIL = "Este e-mail já está cadastrado.";
+const NOT_A_MEMBER = "Você não faz mais parte desta organização.";
 const DUPLICATE_SLUG = "Este endereço já está em uso.";
 
 const field = (data: FormData, name: string) => {
@@ -45,9 +46,9 @@ async function startSession(res: Response) {
 }
 
 // Returns the response, or null when the backend is unavailable; other errors propagate.
-async function post(path: string, body: unknown): Promise<Response | null> {
+async function post(path: string, body: unknown, token?: string): Promise<Response | null> {
   try {
-    return await backendFetch(path, { method: "POST", body: JSON.stringify(body) });
+    return await backendFetch(path, { method: "POST", body: JSON.stringify(body), token });
   } catch (e) {
     if (e instanceof ServiceUnavailableError) return null;
     throw e;
@@ -121,4 +122,19 @@ export async function logout(): Promise<void> {
     }
   }
   redirect("/entrar");
+}
+
+// Never carries a token (SWITCH-07).
+export type SwitchState = { error: string };
+
+export async function switchOrganization(organizationId: string): Promise<SwitchState> {
+  const token = (await cookies()).get(ACCESS_COOKIE)?.value;
+  if (!token) redirect("/auth/expired");
+  const res = await post("/api/auth/switch-organization", { organizationId }, token);
+  if (!res) return { error: UNAVAILABLE };
+  if (res.status === 401) redirect("/auth/expired");
+  if (res.status === 403) return { error: NOT_A_MEMBER };
+  if (!res.ok) return { error: UNAVAILABLE };
+  await startSession(res);
+  redirect("/");
 }

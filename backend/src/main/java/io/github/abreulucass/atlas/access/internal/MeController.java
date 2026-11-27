@@ -1,5 +1,6 @@
 package io.github.abreulucass.atlas.access.internal;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +33,12 @@ class MeController {
 		User user = users.findById(userId).orElseThrow();
 		Membership membership = memberships.findByUserIdAndOrganizationId(userId, organizationId).orElseThrow();
 		return new Me(user.getId(), user.getName(), user.getEmail(), organizationId, membership.getRole());
+	}
+
+	@GetMapping("/api/me/organizations")
+	@Transactional(readOnly = true)
+	List<OrganizationView> organizations() {
+		return memberships.findOrganizations(CurrentUser.id());
 	}
 
 }
